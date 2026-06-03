@@ -4,9 +4,7 @@ using cards.instance;
 namespace gameStates
 {
     public class BattleCardState
-    { 
-        // Todo: Check if it is good to use arrays like these to split out decks
-        // Todo: Is it possible/better to only use 1 card pool...?
+    {
         public List<CardInstanceId> DrawPile = new List<CardInstanceId>();
         public List<CardInstanceId> ExhaustedPile = new List<CardInstanceId>();
         public List<CardInstanceId> HandCards = new List<CardInstanceId>();

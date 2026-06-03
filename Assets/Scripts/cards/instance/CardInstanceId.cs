@@ -1,20 +1,49 @@
 ﻿using System;
-using ids;
 
 namespace cards.instance
 {
-    public struct CardInstanceId
+    public readonly struct CardInstanceId : IEquatable<CardInstanceId>
     {
-        private Int64 _value;
+        public readonly uint Value;
 
-        public void GenerateId()
+        public CardInstanceId(uint value)
         {
-            _value = IdGenerator.Generate();
+            Value = value;
         }
 
-        public Int64 GetId()
+        public static bool operator ==(CardInstanceId left, CardInstanceId right)
         {
-            return _value;
+            return left.Value == right.Value;
+        }
+
+        public static bool operator !=(CardInstanceId left, CardInstanceId right)
+        {
+            return left.Value != right.Value;
+        }
+
+        public static bool operator ==(CardInstanceId left, uint right)
+        {
+            return left.Value == right;
+        }
+
+        public static bool operator !=(CardInstanceId left, uint right)
+        {
+            return left.Value != right;
+        }
+        
+        public bool Equals(CardInstanceId other)
+        {
+            return Value == other.Value;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is CardInstanceId other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            return (int)Value;
         }
     }
 }

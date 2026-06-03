@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using cards.definition;
+using enums;
 
 namespace cards.instance
 {
@@ -7,16 +8,21 @@ namespace cards.instance
     public class DeckManager
     {
         public List<CardInstance> CardInstances = new List<CardInstance>();
+        private uint _index = 0; 
 
         public CardInstanceId AddCardToDeck(CardDefinitionManager definitionManager, CardDefinitionId definitionId)
         {
             CardDefinition definition = definitionManager.Get(definitionId);
-            CardInstance newCard = new CardInstance();
-            newCard.Instantiate(definition);
-            // Todo: Which is better? Generate id while Adding Card to deck? Or Generate id in Instantiate function?
-            CardInstances.Add(newCard);
-            // Todo: Temp, fix 
-            return new CardInstanceId();
+            CardInstance instance = new CardInstance(definitionId, new CardInstanceId(GenerateId()), EnumEnchantmentType.None);
+            CardInstances.Add(instance);
+
+            return instance.Id;
+        }
+
+        private uint GenerateId()
+        {
+            uint result = ++_index;
+            return result;
         }
     }
 }

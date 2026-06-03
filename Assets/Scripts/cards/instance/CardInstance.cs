@@ -1,6 +1,5 @@
 ﻿using cards.definition;
 using enums;
-using ids;
 
 namespace cards.instance
 {
@@ -10,10 +9,11 @@ namespace cards.instance
         public CardInstanceId Id;
         public EnumEnchantmentType Enchantment;
 
-        public void Instantiate(CardDefinition definition)
+        public CardInstance(CardDefinitionId definitionId, CardInstanceId id, EnumEnchantmentType enchantment)
         {
-            DefinitionId = definition.Id;
-            // Note: All id generation is handled by manager.
+            DefinitionId = definitionId;
+            Id = id;
+            Enchantment = enchantment;
         }
     }
 }
