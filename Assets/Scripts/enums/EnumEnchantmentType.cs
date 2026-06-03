@@ -2,9 +2,10 @@
 {
     public enum EnumEnchantmentType
     {
-        Innate = 0,
-        Retain = 1,
-        UnExhaust = 2,
-        Replay = 3,
+        None = 0,
+        Innate,
+        Retain,
+        UnExhaust,
+        Replay,
     }
 }

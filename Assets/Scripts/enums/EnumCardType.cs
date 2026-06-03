@@ -2,10 +2,11 @@
 {
     public enum EnumCardType
     {
-        Skill = 0,
-        Power = 1,
-        Attack = 2,
-        Status = 3,
-        Curse = 4,
+        None = 0,
+        Skill,
+        Power,
+        Attack,
+        Status,
+        Curse,
     }
 }
