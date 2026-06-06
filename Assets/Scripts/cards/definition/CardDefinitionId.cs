@@ -3,6 +3,7 @@ using tools;
 
 namespace cards.definition
 {
+    // Todo: Verify if we should use 'TypeName + CardName' as CardDefinitionId (SlayTheSpire2 follow this pattern)
     public readonly struct CardDefinitionId : IEquatable<CardDefinitionId>
     {
         public readonly string Name;

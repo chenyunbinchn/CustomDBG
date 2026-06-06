@@ -1,11 +1,10 @@
-﻿using cards.definition;
-using UnityEngine;
+﻿using UnityEngine;
 
-namespace cards.artwork
+namespace cards.definition
 {
     [CreateAssetMenu(menuName = "Cards/Card Definition Library")]
     public class CardDefinitionLibrary : ScriptableObject
     {
-        [SerializeField] public CardDefinitionSO[] definitionSOs;
+        [SerializeField] public CardDefinitionAuthoring[] definitionSOs;
     }
 }
