@@ -14,7 +14,17 @@ MonoBehaviour:
   m_EditorClassIdentifier: Unity.Addressables.Editor::UnityEditor.AddressableAssets.Settings.AddressableAssetGroup
   m_GroupName: Default Local Group
   m_GUID: 5f3aa48a0666c46438e819dc5c01b8fe
-  m_SerializeEntries: []
+  m_SerializeEntries:
+  - m_GUID: 378946bbc38126a4a91eec56b44395fa
+    m_Address: Assets/Prefabs/CardTemplate.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 8c9cfa26abfee488c85f1582747f6a02
+    m_Address: Assets/Scenes/SampleScene.unity
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: bf52f9fc00beea44c8dc0c19e1dc20cb, type: 2}
   m_SchemaSet:
