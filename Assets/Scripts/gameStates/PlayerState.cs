@@ -3,7 +3,8 @@
     public class PlayerState
     {
         public int[] Hps;
-        public int[] Energies;
+        public int[] EnergiesLimit;
         public int[] Golds;
+        public 
     }
 }
