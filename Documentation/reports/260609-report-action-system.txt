@@ -1,0 +1,413 @@
+========================================================================
+  报告：Action 队列系统实现方案
+  生成日期：2026-06-09
+========================================================================
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+在 DBG（Deck Building Game）中，游戏逻辑需要按顺序、可插入地执行，
+并且要与动画同步。例如，打出一张卡牌的完整流程：
+
+  播放出牌动画（等 0.3 秒）
+  -> 造成伤害（等打击动画 0.2 秒）
+  -> 触发遗物/Power 联动
+  -> 敌人死亡（等死亡动画 0.5 秒）
+  -> 抽牌补充手牌
+
+如果所有逻辑在一帧内同步完成，动画会混乱，玩家无法理解发生了什么。
+因此需要一个 Action 队列系统：将每个游戏行为封装为一个"Action"，
+按顺序入队、逐个异步执行。
+
+本项目当前的 BattleCardPileApi 是静态同步方法，没有队列概念，
+无法支持动画等待、玩家中途选择等需求。
+
+参考对象：Slay the Spire 2 的 GameAction + ActionExecutor 系统。
+
+------------------------------------------------------------------------
+
+2. 代码分析
+------------------------------------------------------------------------
+
+2.1 STS2 的 Action 系统（来源：D:\Decompiled Projects\Slay the Spire 2）
+
+STS2 使用 Godot 引擎（C#），核心文件：
+  - src/Core/GameActions/GameAction.cs         -- 基础抽象类
+  - src/Core/GameActions/ActionExecutor.cs     -- 执行器
+  - src/Core/GameActions/Multiplayer/ActionQueueSet.cs -- 队列管理
+
+GameAction 基类结构：
+
+  public abstract class GameAction
+  {
+      public GameActionState State;     // None -> WaitingForExecution -> Executing -> Finished/Canceled
+      public uint Id;                   // 全局唯一 ID
+      public ulong OwnerId;            // 所属玩家 NetId（多人）
+
+      public event Action BeforeExecuted;
+      public event Action JustBeforeFinished;
+      public event Action AfterFinished;
+
+      public abstract Task Execute();   // 异步执行，子类实现
+      public void PauseForPlayerChoice();         // 暂停等待玩家输入
+      public void ResumeAfterGatheringPlayerChoice();  // 玩家选择后恢复
+  }
+
+ActionExecutor 执行循环：
+
+  public class ActionExecutor
+  {
+      public GameAction CurrentlyRunningAction;
+      public bool IsPaused;
+
+      public async Task ExecuteActions()
+      {
+          while (true)
+          {
+              GameAction action = actionQueueSet.GetReadyAction();
+              if (action == null) { await WaitForNextFrame(); continue; }
+
+              await WaitUntilUnpaused();
+              BeforeActionExecuted?.Invoke(action);
+              await action.Execute();
+              AfterActionExecuted?.Invoke(action);
+              await WaitForNextFrame();  // 与 Godot ProcessFrame 同步
+          }
+      }
+  }
+
+关键设计点：
+  - Action 是异步的（async Task），可以在中间 await 等待
+  - 支持暂停/恢复（PauseForPlayerChoice）
+  - 多玩家时用 ActionQueueSet 管理每个玩家的独立队列
+  - Action 内部可以入队新的 Action（如 PlayCardAction 入队 DamageAction）
+
+2.2 本项目当前状态（来源：Assets/Scripts/systems/BattleCardPileApi.cs）
+
+  public static class BattleCardPileApi
+  {
+      public static void Draw(List<CardInstanceId> from, List<CardInstanceId> to, int drawCount)
+      {
+          // 空方法，待实现
+      }
+  }
+
+问题：
+  - 纯同步静态方法，无法等待动画
+  - 无队列概念，无法控制执行顺序
+  - 无法在执行过程中暂停等待玩家选择
+
+------------------------------------------------------------------------
+
+3. 实现方案一览
+------------------------------------------------------------------------
+
+方案 A：继承（抽象类）
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public abstract class GameAction
+  {
+      public bool IsFinished { get; private set; }
+      public abstract IEnumerator Execute();
+      protected void Finish() { IsFinished = true; }
+  }
+
+  public class DealDamageAction : GameAction
+  {
+      private Creature _target;
+      private int _amount;
+
+      public DealDamageAction(Creature target, int amount)
+      {
+          _target = target;
+          _amount = amount;
+      }
+
+      public override IEnumerator Execute()
+      {
+          _target.Hp -= _amount;
+          yield return new WaitForSeconds(0.2f);
+      }
+  }
+
+执行器：
+
+  public class ActionExecutor : MonoBehaviour
+  {
+      private Queue<GameAction> _queue = new Queue<GameAction>();
+      private GameAction _current;
+
+      public void Enqueue(GameAction action) { _queue.Enqueue(action); }
+
+      private void Update()
+      {
+          if (_current == null && _queue.Count > 0)
+          {
+              _current = _queue.Dequeue();
+              StartCoroutine(RunAction(_current));
+          }
+      }
+
+      private IEnumerator RunAction(GameAction action)
+      {
+          yield return action.Execute();
+          _current = null;
+      }
+  }
+
+优点：
+  - 每个 Action 可持有自己的状态字段
+  - 生命周期易扩展（加 OnEnqueue/OnCancel/OnFinish 等虚方法）
+  - 类型安全，IDE 自动补全好
+  - 调试方便，每个 Action 有明确类名
+  - 和 STS2 的设计最接近
+
+缺点：
+  - 每个 Action 一个类文件，数量膨胀
+  - 简单 Action（如"等待 0.5 秒"）也要写一整个类
+  - 继承层级深了会僵化
+
+适用场景：通用选择，特别是 Action 种类多、生命周期复杂时。
+
+
+方案 B：接口
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public interface IGameAction
+  {
+      IEnumerator Execute();
+  }
+
+  public struct DealDamageAction : IGameAction
+  {
+      public int Damage;
+      public Creature Target;
+      public IEnumerator Execute()
+      {
+          Target.Hp -= Damage;
+          yield return new WaitForSeconds(0.2f);
+      }
+  }
+
+优点：
+  - 可以用 struct 避免 GC（理论上）
+  - 不锁死继承链，类可以实现多个接口
+  - 和方案 A 本质相近但更灵活
+
+缺点：
+  - 装箱问题：Queue<IGameAction> 存 struct 会导致装箱，反而增加 GC
+  - 没有默认实现（C# 8 之前），公共逻辑需重复
+  - 接口无法持有状态（如 IsFinished 标志需要每个实现自己维护）
+
+适用场景：偏好组合而非继承，或需要一个类同时扮演多种角色时。
+
+
+方案 C：委托/Lambda
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public delegate IEnumerator GameActionFunc();
+
+  public class ActionExecutor : MonoBehaviour
+  {
+      private Queue<GameActionFunc> _queue = new Queue<GameActionFunc>();
+
+      public void Enqueue(GameActionFunc action) { _queue.Enqueue(action); }
+  }
+
+  // 使用
+  executor.Enqueue(() => DealDamage(target, 6));
+  executor.Enqueue(() => DrawCards(2));
+
+  // 工具方法
+  IEnumerator DealDamage(Creature target, int amount)
+  {
+      target.Hp -= amount;
+      yield return new WaitForSeconds(0.2f);
+  }
+
+优点：
+  - 极简，无需定义任何类
+  - 临时逻辑（一次性效果）写起来最快
+  - 闭包自然捕获上下文变量
+
+缺点：
+  - 无法附带元数据（名字、优先级、可取消标志等）
+  - 调试困难：断点不好打，日志中看不到是什么 Action
+  - 闭包捕获可能导致意外引用和 GC 压力
+  - 无法扩展生命周期钩子
+
+适用场景：原型期快速验证，或作为方案 A 的补充（简单操作用 lambda，复杂操作用类）。
+
+
+方案 D：数据驱动（枚举 + 参数）
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public struct GameAction
+  {
+      public ActionType Type;   // DealDamage, DrawCards, GainBlock, ApplyPower...
+      public int TargetId;
+      public int Value;
+      public int SecondaryValue;
+  }
+
+  // 一个中央执行器 switch 分发
+  public class ActionExecutor : MonoBehaviour
+  {
+      IEnumerator ExecuteAction(GameAction action)
+      {
+          switch (action.Type)
+          {
+              case ActionType.DealDamage:
+                  GetCreature(action.TargetId).Hp -= action.Value;
+                  yield return new WaitForSeconds(0.2f);
+                  break;
+              case ActionType.DrawCards:
+                  for (int i = 0; i < action.Value; i++)
+                  {
+                      // 从抽牌堆移到手牌...
+                      yield return new WaitForSeconds(0.1f);
+                  }
+                  break;
+          }
+      }
+  }
+
+优点：
+  - 零 GC，纯值类型
+  - 极易序列化（网络同步、回放、存档）
+  - 和本项目现有的 CardEffect 思路一致
+  - 数据可被 Inspector 编辑
+
+缺点：
+  - switch 会随 Action 种类增多而膨胀，违反开闭原则
+  - 无法表达复杂流程（条件分支、循环、等待玩家选择）
+  - 和 CardEffect 一样有表达力天花板
+  - 参数含义不自描述（Value 是伤害？是抽牌数？取决于 Type）
+
+适用场景：需要网络同步/回放/录像功能时；Action 种类少且固定时。
+
+
+方案 E：混合方案（数据 + 委托 fallback）
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public struct GameAction
+  {
+      public ActionType Type;
+      public int Value;
+      public int TargetId;
+      public Func<IEnumerator> CustomExecute;  // 可选
+  }
+
+  IEnumerator ExecuteAction(GameAction action)
+  {
+      if (action.CustomExecute != null)
+          yield return action.CustomExecute();
+      else
+          yield return ExecuteByType(action);  // 走标准 switch
+  }
+
+  // 标准 Action
+  executor.Enqueue(new GameAction { Type = ActionType.DealDamage, Value = 6, TargetId = enemy.Id });
+
+  // 特殊 Action
+  executor.Enqueue(new GameAction
+  {
+      Type = ActionType.Custom,
+      CustomExecute = () => FiendFireLogic(hand, target)
+  });
+
+优点：
+  - 标准 Action 用数据驱动（简洁、可序列化）
+  - 特殊 Action 用委托（无天花板）
+  - 渐进式开发：先全用数据，遇到天花板再加委托
+
+缺点：
+  - 两套执行路径增加理解成本
+  - CustomExecute 部分不可序列化，回放时需要特殊处理
+  - 需要团队约定什么时候用哪条路径
+
+适用场景：务实折中；既想要数据驱动的好处，又不想被锁死。
+
+
+方案 F：ScriptableObject Action（Unity 特有）
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public abstract class GameActionSO : ScriptableObject
+  {
+      public abstract IEnumerator Execute(ActionContext context);
+  }
+
+  [CreateAssetMenu(menuName = "Actions/DealDamage")]
+  public class DealDamageSO : GameActionSO
+  {
+      public int damage;
+      public override IEnumerator Execute(ActionContext ctx)
+      {
+          ctx.Target.Hp -= damage;
+          yield return new WaitForSeconds(0.2f);
+      }
+  }
+
+  // 在 Inspector 中，卡牌可以拖拽引用 GameActionSO 资产
+
+优点：
+  - Inspector 可视化编辑
+  - 和本项目的 Authoring 模式一致
+  - 策划可以拖拽组合 Action
+
+缺点：
+  - SO 是资产（Asset），不适合运行时动态创建
+  - 有状态的 Action 会有共享实例陷阱（多次执行同一 SO 共享状态）
+  - 复杂逻辑仍需写代码
+  - 序列化/反序列化流程比纯数据复杂
+
+适用场景：策划驱动的工作流；Action 种类少且参数可视化编辑需求强时。
+
+
+总览对比表：
+
+  方案       | 复杂度 | 可扩展 | 可序列化 | 调试 | GC压力 | 推荐场景
+  -----------|--------|--------|----------|------|--------|-------------------
+  A 继承     | 中     | 高     | 中       | 好   | 中     | 通用选择（STS2做法）
+  B 接口     | 中     | 高     | 中       | 好   | 有装箱 | 偏好组合而非继承
+  C 委托     | 低     | 低     | 差       | 差   | 有闭包 | 原型期快速验证
+  D 数据     | 低     | 低     | 极好     | 好   | 无     | 网络同步/回放
+  E 混合     | 中     | 高     | 部分     | 中   | 中     | 务实折中
+  F SO       | 高     | 中     | 好       | 中   | 低     | 策划驱动工作流
+
+------------------------------------------------------------------------
+
+4. 结论
+------------------------------------------------------------------------
+
+对于本项目（CustomDBG），需要综合考虑以下因素：
+
+  - 项目已有数据驱动的 CardEffect[] 设计倾向
+  - 需要支持动画等待和玩家中途选择
+  - 未来可能需要网络同步（多玩家预留）
+  - 当前团队规模小，不宜过度设计
+
+建议候选为方案 A（继承）或方案 E（混合）。
+
+方案 A 最成熟、最接近 STS2 的验证过的设计，适合长期维护。
+方案 E 与项目现有的数据驱动风格最契合，但需要额外约定使用规范。
+
+具体选择需根据开发者对"类文件数量膨胀"vs"两套路径复杂度"的偏好决定。
+
+Unity 环境下建议使用 Coroutine（IEnumerator + yield return）而非
+async/await，因为 Unity 的 Coroutine 原生支持更好，不需要处理
+SynchronizationContext 的复杂性。
+
+========================================================================

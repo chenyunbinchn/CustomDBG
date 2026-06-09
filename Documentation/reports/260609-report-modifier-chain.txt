@@ -1,0 +1,528 @@
+========================================================================
+  报告：修改器链（Modifier Chain）实现方案
+  生成日期：2026-06-09
+========================================================================
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+在 DBG 中，数值计算（伤害、防御、治疗等）需要经过多个来源的修改：
+
+  基础伤害 6
+    + 力量（Strength）+2  -> 8
+    * 易伤（Vulnerable）x1.5  -> 12
+
+如果将这些修改硬编码在一个公式中，每新增一个 Power/Relic 就要修改
+公式代码，违反开闭原则。
+
+修改器链的目的是：让每个 Power/Relic 自己声明"我如何修改这个数值"，
+计算时遍历所有修改器，按固定顺序汇总得出最终值。
+
+本项目当前没有修改器系统，CardEffect.Value 是编辑期固定的 int。
+
+参考对象：Slay the Spire 2 的 ModifyDamageAdditive/Multiplicative 系统。
+
+------------------------------------------------------------------------
+
+2. 代码分析
+------------------------------------------------------------------------
+
+2.1 STS2 的修改器系统（来源：D:\Decompiled Projects\Slay the Spire 2）
+
+关键文件：
+  - src/Core/Models/AbstractModel.cs   -- 定义修改器虚方法
+  - src/Core/Models/PowerModel.cs      -- Power 基类
+  - src/Core/Hooks/Hook.cs             -- 钩子遍历分发
+
+AbstractModel 中定义的修改器方法（虚方法，默认无修改）：
+
+  // 加法修改（返回要额外增加的值）
+  public virtual decimal ModifyDamageAdditive(
+      Creature? target, decimal amount, ValueProp props,
+      Creature? dealer, CardModel? cardSource)
+  {
+      return 0m;
+  }
+
+  // 乘法修改（返回乘数，1.0 = 不变）
+  public virtual decimal ModifyDamageMultiplicative(
+      Creature? target, decimal amount, ValueProp props,
+      Creature? dealer, CardModel? cardSource)
+  {
+      return 1m;
+  }
+
+  // 防御也有类似的修改器
+  public virtual decimal ModifyBlockAdditive(...) => 0m;
+  public virtual decimal ModifyBlockMultiplicative(...) => 1m;
+
+具体 Power 实现示例：
+
+  // StrengthPower（来源：src/Core/Models/Powers/StrengthPower.cs）
+  public override decimal ModifyDamageAdditive(
+      Creature? target, decimal amount, ValueProp props,
+      Creature? dealer, CardModel? card)
+  {
+      if (base.Owner != dealer) return 0m;  // 只修改自己造成的伤害
+      if (!props.IsAttack()) return 0m;     // 只修改攻击伤害
+      return base.Amount;                   // +力量值
+  }
+
+  // VulnerablePower（来源：src/Core/Models/Powers/VulnerablePower.cs）
+  public override decimal ModifyDamageMultiplicative(
+      Creature? target, decimal amount, ValueProp props,
+      Creature? dealer, CardModel? card)
+  {
+      if (base.Owner != target) return 1m;  // 只修改自己受到的伤害
+      return 1.5m;                          // x1.5
+  }
+
+  // AccuracyPower（来源：src/Core/Models/Powers/AccuracyPower.cs）
+  public override decimal ModifyDamageAdditive(
+      Creature? target, decimal amount, ValueProp props,
+      Creature? dealer, CardModel? card)
+  {
+      if (base.Owner != dealer) return 0m;
+      if (!props.IsPoweredAttack()) return 0m;
+      if (card == null || !card.Tags.Contains(CardTag.Shiv)) return 0m;
+      return base.Amount;  // 只对匕首生效
+  }
+
+计算流程（Hook 遍历）：
+
+  // 伪代码，基于 Hook.cs 和 DamageCmd 的实现逻辑
+  int CalculateFinalDamage(int baseDamage, Creature source, Creature target, ...)
+  {
+      decimal additive = 0;
+      decimal multiplicative = 1;
+
+      // 阶段1：遍历所有监听器，收集加法修改
+      foreach (AbstractModel model in combatState.IterateHookListeners())
+          additive += model.ModifyDamageAdditive(target, baseDamage, props, source, card);
+
+      // 阶段2：遍历所有监听器，收集乘法修改
+      decimal afterAdd = baseDamage + additive;
+      foreach (AbstractModel model in combatState.IterateHookListeners())
+          multiplicative *= model.ModifyDamageMultiplicative(target, afterAdd, props, source, card);
+
+      return (int)(afterAdd * multiplicative);
+  }
+
+关键设计点：
+  - 固定阶段顺序：先加法 -> 再乘法，保证计算结果确定性
+  - 每个修改器有条件判断（只对自己的伤害生效、只对攻击生效等）
+  - 修改器方法签名包含丰富的上下文信息（target, source, card, props）
+  - STS2 的 AbstractModel 有约 10+ 个修改器虚方法
+
+2.2 本项目当前状态
+
+  - 无 Power/Buff 系统
+  - 无修改器机制
+  - CardEffect.Value 是固定的编辑期 int 值
+  - 伤害计算尚未实现
+
+------------------------------------------------------------------------
+
+3. 实现方案一览
+------------------------------------------------------------------------
+
+方案 A：虚方法覆写（STS2 做法）
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public abstract class PowerModel
+  {
+      public int Amount;
+      public Creature Owner;
+
+      // 默认不修改
+      public virtual int ModifyDamageAdditive(
+          int baseDamage, Creature source, Creature target, CardInstance card)
+      {
+          return 0;
+      }
+
+      public virtual float ModifyDamageMultiplicative(
+          int currentDamage, Creature source, Creature target, CardInstance card)
+      {
+          return 1f;
+      }
+
+      public virtual int ModifyBlockAdditive(
+          int baseBlock, Creature target, CardInstance card)
+      {
+          return 0;
+      }
+
+      public virtual float ModifyBlockMultiplicative(
+          int currentBlock, Creature target, CardInstance card)
+      {
+          return 1f;
+      }
+  }
+
+  // 力量
+  public class StrengthPower : PowerModel
+  {
+      public override int ModifyDamageAdditive(
+          int baseDamage, Creature source, Creature target, CardInstance card)
+      {
+          if (Owner != source) return 0;
+          return Amount;
+      }
+  }
+
+  // 易伤
+  public class VulnerablePower : PowerModel
+  {
+      public override float ModifyDamageMultiplicative(
+          int currentDamage, Creature source, Creature target, CardInstance card)
+      {
+          if (Owner != target) return 1f;
+          return 1.5f;
+      }
+  }
+
+  // 计算器
+  public static class DamageCalculator
+  {
+      public static int Calculate(int baseDamage, Creature source, Creature target,
+          CardInstance card, List<PowerModel> allPowers)
+      {
+          int additive = 0;
+          foreach (PowerModel power in allPowers)
+              additive += power.ModifyDamageAdditive(baseDamage, source, target, card);
+
+          int afterAdd = baseDamage + additive;
+
+          float multiplicative = 1f;
+          foreach (PowerModel power in allPowers)
+              multiplicative *= power.ModifyDamageMultiplicative(afterAdd, source, target, card);
+
+          return Mathf.FloorToInt(afterAdd * multiplicative);
+      }
+  }
+
+优点：
+  - 逻辑内聚：Power 自己定义自己的修改规则
+  - 类型安全，编译器检查参数
+  - 调试简单：断点打在具体 Power 的 override 里
+  - 经过 STS2 验证的成熟模式
+
+缺点：
+  - 基类会膨胀：每种可修改数值（伤害/防御/治疗/能量...）需要 2 个虚方法
+  - 新增修改维度需要改基类
+  - 大部分 Power 只覆写 1-2 个方法，其余都是默认值
+
+适用场景：快速起步，修改维度数量可控（< 10 种）时。
+
+
+方案 B：接口分离
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public interface IDamageModifier
+  {
+      int ModifyDamageAdditive(int baseDamage, Creature source, Creature target);
+      float ModifyDamageMultiplicative(int damage, Creature source, Creature target);
+  }
+
+  public interface IBlockModifier
+  {
+      int ModifyBlockAdditive(int baseBlock, Creature target);
+      float ModifyBlockMultiplicative(int block, Creature target);
+  }
+
+  public interface IEnergyModifier
+  {
+      int ModifyEnergyGain(int baseEnergy, Creature target);
+  }
+
+  // Power 只实现它关心的接口
+  public class StrengthPower : PowerModel, IDamageModifier
+  {
+      public int ModifyDamageAdditive(int baseDamage, Creature source, Creature target)
+      {
+          if (Owner != source) return 0;
+          return Amount;
+      }
+      public float ModifyDamageMultiplicative(...) => 1f;
+  }
+
+  // 计算时只查找实现了对应接口的 Power
+  public static int CalculateDamage(int baseDamage, Creature source, Creature target)
+  {
+      int additive = 0;
+      foreach (IDamageModifier m in source.Powers.OfType<IDamageModifier>())
+          additive += m.ModifyDamageAdditive(baseDamage, source, target);
+      foreach (IDamageModifier m in target.Powers.OfType<IDamageModifier>())
+          additive += m.ModifyDamageAdditive(baseDamage, source, target);
+
+      float multiplicative = 1f;
+      int afterAdd = baseDamage + additive;
+      foreach (IDamageModifier m in source.Powers.OfType<IDamageModifier>())
+          multiplicative *= m.ModifyDamageMultiplicative(afterAdd, source, target);
+      foreach (IDamageModifier m in target.Powers.OfType<IDamageModifier>())
+          multiplicative *= m.ModifyDamageMultiplicative(afterAdd, source, target);
+
+      return Mathf.FloorToInt(afterAdd * multiplicative);
+  }
+
+优点：
+  - Power 基类不膨胀，干净
+  - 职责分离，一个 Power 只声明它影响什么
+  - 新增修改维度只需加新接口，不需改基类
+  - 符合接口隔离原则（ISP）
+
+缺点：
+  - OfType<> 每次调用有 GC 分配（可通过缓存 List 解决）
+  - 接口本身数量可能增长
+  - 每个 IDamageModifier 仍需实现 Additive 和 Multiplicative 两个方法，
+    即使只关心其中一个（可用 C# 默认接口实现缓解）
+
+适用场景：长期维护，修改维度可能频繁新增时。
+
+
+方案 C：委托注册
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public class ModifierRegistry
+  {
+      private List<Func<DamageContext, int>> _damageAdditiveModifiers
+          = new List<Func<DamageContext, int>>();
+      private List<Func<DamageContext, float>> _damageMultModifiers
+          = new List<Func<DamageContext, float>>();
+
+      public void RegisterDamageAdditive(Func<DamageContext, int> modifier)
+      {
+          _damageAdditiveModifiers.Add(modifier);
+      }
+
+      public void UnregisterDamageAdditive(Func<DamageContext, int> modifier)
+      {
+          _damageAdditiveModifiers.Remove(modifier);
+      }
+
+      public int CalculateDamage(int baseDamage, DamageContext ctx)
+      {
+          int add = 0;
+          foreach (Func<DamageContext, int> mod in _damageAdditiveModifiers)
+              add += mod(ctx);
+
+          float mult = 1f;
+          foreach (Func<DamageContext, float> mod in _damageMultModifiers)
+              mult *= mod(ctx);
+
+          return Mathf.FloorToInt((baseDamage + add) * mult);
+      }
+  }
+
+  // Power 注册/注销
+  public class StrengthPower : PowerModel
+  {
+      private Func<DamageContext, int> _modifier;
+
+      public override void OnApply()
+      {
+          _modifier = ctx =>
+          {
+              if (ctx.Source != Owner) return 0;
+              return Amount;
+          };
+          Registry.RegisterDamageAdditive(_modifier);
+      }
+
+      public override void OnRemove()
+      {
+          Registry.UnregisterDamageAdditive(_modifier);
+      }
+  }
+
+优点：
+  - 完全解耦，Power 不需要继承特定基类或实现接口
+  - 动态添加/移除修改器很灵活
+  - 可以精确控制执行顺序（注册顺序 or 带优先级注册）
+
+缺点：
+  - 必须严格管理注册/注销生命周期（OnApply/OnRemove 对称调用）
+  - Power 被移除时忘记注销 = 内存泄漏 + 幽灵修改器 bug
+  - 调试困难：lambda 没有名字，不好追踪是哪个 Power 的修改器
+  - 闭包捕获上下文可能导致 GC 问题
+
+适用场景：修改器需要高度动态（运行时频繁添加/移除）时。
+
+
+方案 D：数据驱动修改器
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public enum ModifierPhase
+  {
+      Additive,
+      Multiplicative,
+      FinalCap
+  }
+
+  public struct DamageModifierData
+  {
+      public ModifierPhase Phase;
+      public int FlatBonus;       // Phase == Additive 时使用
+      public float Multiplier;    // Phase == Multiplicative 时使用
+      public int Cap;             // Phase == FinalCap 时使用
+      public string SourceName;   // 用于 UI 和调试
+  }
+
+  // 每个 Power 提供修改器数据
+  public class StrengthPower : PowerModel
+  {
+      public override DamageModifierData GetDamageModifier(Creature source, Creature target)
+      {
+          return new DamageModifierData
+          {
+              Phase = ModifierPhase.Additive,
+              FlatBonus = Amount,
+              SourceName = "Strength"
+          };
+      }
+  }
+
+  // 计算器
+  public static int CalculateDamage(int baseDamage, List<DamageModifierData> modifiers)
+  {
+      // 按阶段排序
+      modifiers.Sort((a, b) => a.Phase.CompareTo(b.Phase));
+
+      int result = baseDamage;
+      foreach (DamageModifierData mod in modifiers)
+      {
+          switch (mod.Phase)
+          {
+              case ModifierPhase.Additive:
+                  result += mod.FlatBonus;
+                  break;
+              case ModifierPhase.Multiplicative:
+                  result = Mathf.FloorToInt(result * mod.Multiplier);
+                  break;
+              case ModifierPhase.FinalCap:
+                  result = Mathf.Min(result, mod.Cap);
+                  break;
+          }
+      }
+      return result;
+  }
+
+优点：
+  - 修改器是纯数据，可序列化
+  - UI 可以展示"伤害来源分解"（如"6 基础 +2 力量 x1.5 易伤 = 12"）
+  - 排序灵活，可扩展新阶段（如 FinalCap）
+
+缺点：
+  - 无法表达条件修改（如"只对匕首卡生效"需要额外字段或 fallback）
+  - 复杂修改器（如 AccuracyPower 的条件判断）不好纯数据描述
+  - 和 CardEffect 一样有表达力天花板
+
+适用场景：需要 UI 展示伤害计算分解，或需要序列化修改器时。
+
+
+方案 E：优先级管道（Pipeline）
+~~~~~~~~~~~~~~~~~~~~~~
+
+核心代码：
+
+  public interface IDamageProcessor
+  {
+      int Priority { get; }  // 数字越小越先执行
+      int Process(int currentDamage, DamageContext ctx);
+  }
+
+  public class DamagePipeline
+  {
+      private SortedList<int, List<IDamageProcessor>> _processors
+          = new SortedList<int, List<IDamageProcessor>>();
+
+      public void Add(IDamageProcessor processor)
+      {
+          int priority = processor.Priority;
+          if (!_processors.ContainsKey(priority))
+              _processors[priority] = new List<IDamageProcessor>();
+          _processors[priority].Add(processor);
+      }
+
+      public void Remove(IDamageProcessor processor) { /* ... */ }
+
+      public int Process(int baseDamage, DamageContext ctx)
+      {
+          int result = baseDamage;
+          foreach (KeyValuePair<int, List<IDamageProcessor>> kv in _processors)
+          {
+              foreach (IDamageProcessor proc in kv.Value)
+                  result = proc.Process(result, ctx);
+          }
+          return result;
+      }
+  }
+
+  // 约定优先级
+  // 100 = 加法修改（力量、精准）
+  // 200 = 乘法修改（易伤、虚弱）
+  // 300 = 最终封顶（某些遗物限制最大伤害）
+
+  public class StrengthProcessor : IDamageProcessor
+  {
+      public int Priority => 100;
+      public int Amount;
+
+      public int Process(int currentDamage, DamageContext ctx)
+      {
+          if (ctx.Source != Owner) return currentDamage;
+          return currentDamage + Amount;
+      }
+  }
+
+优点：
+  - 显式优先级控制，执行顺序完全可预测
+  - 新增阶段（如"最终封顶"、"最低保底"）只需加新的优先级数字
+  - 中间件模式，每个处理器接收上一个的输出
+  - 可以插入"日志处理器"用于调试
+
+缺点：
+  - 优先级数字不直观，需要约定文档
+  - 管理注册/注销的复杂度和方案 C 类似
+  - 比方案 A/B 更重，对于 DBG 可能过度设计
+
+适用场景：修改阶段复杂（多于加法/乘法两个阶段），或需要高度可扩展时。
+
+
+总览对比表：
+
+  方案         | 复杂度 | 灵活性 | 基类膨胀 | 调试 | UI展示 | 推荐场景
+  -------------|--------|--------|----------|------|--------|------------------
+  A 虚方法     | 低     | 中     | 会膨胀   | 好   | 中     | 快速起步
+  B 接口分离   | 中     | 高     | 不膨胀   | 好   | 中     | 长期维护
+  C 委托注册   | 中     | 高     | 不膨胀   | 差   | 差     | 高度动态
+  D 数据驱动   | 低     | 低     | 不膨胀   | 好   | 好     | 需要 UI 分解展示
+  E 管道       | 高     | 极高   | 不膨胀   | 中   | 中     | 修改阶段复杂
+
+------------------------------------------------------------------------
+
+4. 结论
+------------------------------------------------------------------------
+
+对于本项目，修改维度预期包括：伤害、防御、治疗、能量，共约 4 种。
+每种有加法和乘法两个阶段，总共约 8 个修改点。
+
+这个规模下：
+  - 方案 A（虚方法）最简单直接，8 个虚方法不算膨胀，快速起步最佳。
+  - 方案 B（接口分离）是方案 A 的自然演进，当基类开始膨胀时可以重构过去。
+  - 方案 D（数据驱动）如果项目需要 UI 展示"伤害计算分解"（如鼠标悬停卡牌
+    显示"6 + 2 力量 x 1.5 易伤 = 12"），则值得考虑。
+
+建议从方案 A 起步，如果后期基类膨胀则重构到方案 B。
+计算顺序固定为：加法阶段 -> 乘法阶段，与 STS2 一致。
+
+========================================================================

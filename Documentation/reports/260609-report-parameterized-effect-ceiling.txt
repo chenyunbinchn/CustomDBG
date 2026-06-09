@@ -1,0 +1,519 @@
+========================================================================
+  报告：参数化效果表达力天花板分析
+  生成日期：2026-06-09
+========================================================================
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+本项目采用数据驱动的卡牌效果设计：每张卡牌由一组参数化的 CardEffect
+结构体数组描述，每个 CardEffect 包含 {EffectType, TargetType,
+StatusType, Value} 四个字段。
+
+这种设计的优势是策划友好——在 Unity Inspector 中即可创建新卡牌，
+无需编写代码。但随着卡牌设计的复杂度提升，参数化结构存在表达力上限。
+
+本报告基于 Slay the Spire 2（以下简称 STS2）的 250+ 张卡牌实现，
+分析哪些效果可以通过扩展枚举解决，哪些是参数化结构的真正天花板，
+以及 STS2 是如何处理这一问题的。
+
+------------------------------------------------------------------------
+
+2. 代码分析
+------------------------------------------------------------------------
+
+2.1 本项目的参数化结构
+
+来源：Assets/Scripts/cards/effects/CardEffect.cs
+
+  public struct CardEffect
+  {
+      public EnumCardEffectType EffectType;   // 效果类型
+      public EnumTargetType TargetType;       // 目标类型
+      public EnumCardStatusType StatusType;   // 状态类型（仅 ApplyStatus 时有意义）
+      public int Value;                       // 数值参数
+  }
+
+来源：Assets/Scripts/enums/EnumCardEffectType.cs
+
+  public enum EnumCardEffectType
+  {
+      None = 0,
+      DealDamage,
+      DrawCards,
+      GainBlock,
+      ApplyStatus,
+      GainEnergy,
+      ExhaustSelf,
+  }
+
+卡牌定义为 CardEffect[] 数组，按顺序描述多个效果。
+例如一张"打击"牌可以表示为：
+  [{ DealDamage, SelectedEnemy, None, 6 }]
+
+一张"战斗冥想"可以表示为：
+  [{ DrawCards, Self, None, 3 }, { ApplyStatus, Self, NoDrawPower, 1 }]
+
+
+2.2 STS2 的代码驱动方案
+
+来源：D:\Decompiled Projects\Slay the Spire 2\src\Core\Models\CardModel.cs
+
+STS2 每张卡牌是一个 sealed class，覆写 OnPlay 方法：
+
+  protected override async Task OnPlay(
+      PlayerChoiceContext choiceContext, CardPlay cardPlay)
+  {
+      // 任意 C# 代码
+  }
+
+STS2 内部提供命令 API 用于组合效果：
+  - DamageCmd.Attack(amount)        -- 造成伤害
+  - CardPileCmd.Draw(context, n)    -- 抽牌
+  - CreatureCmd.GainBlock(creature, block, cardPlay)  -- 获得防御
+  - PowerCmd.Apply<T>(context, creature, amount, ...)  -- 施加 Power
+  - CardSelectCmd.FromHand(prefs, context, player, filter)  -- 玩家选牌
+  - CardPileCmd.AutoPlayFromDrawPile(context, owner, n, position)  -- 自动打出
+  - CardCmd.Exhaust(context, card)  -- 消耗卡牌
+  - CardCmd.Discard(context, card)  -- 弃置卡牌
+  - PlayerCmd.GainEnergy(amount, owner)  -- 获得能量
+
+
+2.3 具体卡牌分析：可参数化 vs 不可参数化
+
+------------------------------------------------------------
+第一类：可以通过扩展枚举解决的卡牌
+------------------------------------------------------------
+
+以下卡牌看似复杂，但本质是"基础效果的组合"，只需在
+EnumCardEffectType 中加入新选项即可：
+
+a) Anger（怒火）
+来源：src/Core/Models/Cards/Anger.cs
+
+  protected override async Task OnPlay(...)
+  {
+      await DamageCmd.Attack(damage).FromCard(this).Targeting(target).Execute(ctx);
+      CardModel card = CreateClone();
+      await CardPileCmd.AddGeneratedCardToCombat(card, PileType.Discard, Owner);
+  }
+
+  效果分解：造成伤害 + 复制自身到弃牌堆
+  参数化方案：
+    [{ DealDamage, SelectedEnemy, None, 6 },
+     { CopySelfToPile, DiscardPile, None, 0 }]
+  需要新增：EnumCardEffectType.CopySelfToPile
+
+b) BattleTrance（战斗冥想）
+来源：src/Core/Models/Cards/BattleTrance.cs
+
+  protected override async Task OnPlay(...)
+  {
+      await CardPileCmd.Draw(ctx, cards, Owner);
+      await PowerCmd.Apply<NoDrawPower>(ctx, Owner.Creature, 1, Owner.Creature, this);
+  }
+
+  效果分解：抽牌 + 施加 NoDrawPower
+  参数化方案：
+    [{ DrawCards, Self, None, 3 },
+     { ApplyStatus, Self, NoDraw, 1 }]
+  已有结构可以支持（EnumCardStatusType 新增 NoDraw）。
+
+c) Adrenaline（肾上腺素）
+来源：src/Core/Models/Cards/Adrenaline.cs
+
+  效果分解：获得能量 + 抽牌
+  参数化方案：
+    [{ GainEnergy, Self, None, 1 },
+     { DrawCards, Self, None, 2 }]
+  已有结构完全支持。
+
+d) Blur（模糊）
+来源：src/Core/Models/Cards/Blur.cs
+
+  效果分解：获得防御 + 防御不消失
+  参数化方案：
+    [{ GainBlock, Self, None, 5 },
+     { ApplyStatus, Self, Blur, 1 }]
+
+e) BladeDance（刀刃之舞）
+来源：src/Core/Models/Cards/BladeDance.cs
+
+  效果分解：生成 N 把匕首到手牌
+  参数化方案：
+    [{ GenerateCardToHand, Self, Shiv, 3 }]
+  需要新增：EnumCardEffectType.GenerateCardToHand，
+  StatusType 复用或新增字段指定生成的卡牌 ID。
+
+
+------------------------------------------------------------
+第二类：真正无法参数化的天花板
+------------------------------------------------------------
+
+以下卡牌存在参数化结构的根本性限制：
+
+--- 天花板 A：数值依赖运行时状态 ---
+
+a) FiendFire（恶魔之火）
+来源：src/Core/Models/Cards/FiendFire.cs
+
+  protected override async Task OnPlay(...)
+  {
+      List<CardModel> list = PileType.Hand.GetPile(Owner).Cards.ToList();
+      int cardCount = list.Count;    // <-- 运行时决定
+      foreach (CardModel item in list)
+          await CardCmd.Exhaust(ctx, item);
+      await DamageCmd.Attack(damage).WithHitCount(cardCount)  // <-- 攻击次数 = 手牌数
+          .FromCard(this).Targeting(target).Execute(ctx);
+  }
+
+  问题：攻击次数 = 当前手牌数量。CardEffect.Value 是编辑期固定值，
+  无法表达"Value = hand.Count"这种运行时查询。
+
+b) Expertise（专业技能）
+来源：src/Core/Models/Cards/Expertise.cs
+
+  protected override async Task OnPlay(...)
+  {
+      decimal baseValue = DynamicVars.Cards.BaseValue;
+      int count = Owner.PlayerCombatState.Hand.Cards.Count;
+      decimal count2 = Math.Max(0m, baseValue - (decimal)count);
+      await CardPileCmd.Draw(ctx, count2, Owner);
+  }
+
+  问题：抽牌数 = Max(0, 6 - 当前手牌数)。需要运行时计算。
+
+c) DoubleEnergy（双倍能量）
+来源：src/Core/Models/Cards/DoubleEnergy.cs
+
+  protected override async Task OnPlay(...)
+  {
+      await PlayerCmd.GainEnergy(Owner.PlayerCombatState.Energy, Owner);
+  }
+
+  问题：获得能量数 = 当前剩余能量。纯运行时值。
+
+d) Flechettes（飞刀）
+来源：src/Core/Models/Cards/Flechettes.cs
+
+  问题：伤害次数 = 手牌中技能卡的数量。
+  需要带条件的运行时查询：hand.Count(c => c.Type == Skill)。
+
+e) StormOfSteel（钢铁风暴）
+来源：src/Core/Models/Cards/StormOfSteel.cs
+
+  问题：生成匕首数 = 弃掉的手牌数。前一步操作的结果决定后一步的参数。
+
+--- 天花板 B：需要玩家中途做选择 ---
+
+a) Headbutt（头锤）
+来源：src/Core/Models/Cards/Headbutt.cs
+
+  protected override async Task OnPlay(...)
+  {
+      await DamageCmd.Attack(damage)...Execute(ctx);
+      CardModel selected = (await CardSelectCmd.FromCombatPile(
+          prefs: new CardSelectorPrefs(prompt, 1),
+          context: ctx,
+          pile: PileType.Discard.GetPile(Owner),
+          player: Owner
+      )).FirstOrDefault();
+      if (selected != null)
+          await CardPileCmd.Add(selected, PileType.Draw, CardPilePosition.Top);
+  }
+
+  问题：造成伤害后，执行暂停，等玩家从弃牌堆中选一张牌放回牌顶。
+  参数化是声明式的，无法描述"执行到一半停下来等玩家输入"。
+
+b) DualWield（双持）
+来源：src/Core/Models/Cards/DualWield.cs
+
+  问题：玩家选择手牌中一张攻击/力量牌，复制 N 份。
+  涉及：带过滤条件的选择 + 基于选中卡牌的操作。
+
+c) Nightmare（梦魇）
+来源：src/Core/Models/Cards/Nightmare.cs
+
+  问题：玩家选择手牌中一张牌，施加一个特殊 Power，该 Power
+  记住被选中的卡牌，在下回合开始时复制它。
+  涉及：玩家选择 + 选中对象作为 Power 的参数。
+
+d) Discovery（发现）
+来源：src/Core/Models/Cards/Discovery.cs
+
+  问题：随机生成 3 张卡牌让玩家选 1 张加入手牌。
+  涉及：随机生成 + 玩家选择 + 动态创建卡牌。
+
+e) Acrobatics（杂技）
+来源：src/Core/Models/Cards/Acrobatics.cs
+
+  问题：抽 3 张牌，然后玩家选 1 张弃掉。
+  涉及：先执行一个效果，再等玩家选择执行另一个效果。
+
+f) SeekerStrike（探索打击）
+来源：src/Core/Models/Cards/SeekerStrike.cs
+
+  问题：造成伤害，然后从抽牌堆的随机子集中让玩家选一张加入手牌。
+  涉及：伤害 + 随机子集 + 玩家选择。
+
+--- 天花板 C：条件分支逻辑 ---
+
+a) Feed（吞噬）
+来源：src/Core/Models/Cards/Feed.cs
+
+  protected override async Task OnPlay(...)
+  {
+      bool shouldTriggerFatal = target.Powers
+          .All(p => p.ShouldOwnerDeathTriggerFatal());
+      AttackCommand result = await DamageCmd.Attack(damage)...Execute(ctx);
+      if (shouldTriggerFatal && result.Results
+          .SelectMany(r => r).Any(r => r.WasTargetKilled))
+      {
+          await CreatureCmd.GainMaxHp(Owner.Creature, maxHpGain);
+      }
+  }
+
+  问题：只有在击杀目标时才获得最大生命值。
+  后续步骤依赖前一步的结果（是否击杀）。
+
+b) GrandFinale（大结局）
+来源：src/Core/Models/Cards/GrandFinale.cs
+
+  protected override bool IsPlayable
+      => PileType.Draw.GetPile(Owner).Cards.Count == 0;
+
+  问题：只有抽牌堆为空时才能打出。这不是效果问题，
+  是"可打出条件"——参数化结构没有条件字段。
+
+c) StormOfSteel（钢铁风暴）升级逻辑
+来源：src/Core/Models/Cards/StormOfSteel.cs
+
+  问题：升级版会额外升级所有生成的匕首。
+  涉及：if (IsUpgraded) 条件分支 + 对生成卡牌的额外操作。
+
+d) Malaise（倦怠）
+来源：src/Core/Models/Cards/Malaise.cs
+
+  问题：X 费卡牌，效果值 = 花费的能量。升级版 +1。
+  涉及：运行时能量值 + 升级条件修改。
+
+e) BansheesCry（女妖之嚎）
+来源：src/Core/Models/Cards/BansheesCry.cs
+
+  问题：能量消耗动态减少，每打出一张幽灵牌减 1。
+  涉及：卡牌自身状态随战斗进程改变 + 历史记录查询。
+  这不仅是 OnPlay 的问题，还需要 AfterCardPlayed 钩子。
+
+
+2.4 天花板分类汇总
+
+  天花板类型     | 核心限制                          | 不能加枚举解决的原因
+  --------------|-----------------------------------|---------------------------
+  A 动态数值     | Value 需要运行时查询计算            | 问题在 Value 从哪来，不在 EffectType
+  B 玩家选择     | 效果执行到一半需要暂停等玩家输入    | 参数化是声明式的，无法描述流程控制
+  C 条件分支     | 下一步取决于上一步的结果            | 参数化是线性列表，无法描述 if/else
+
+
+------------------------------------------------------------------------
+
+3. STS2 的解决方案与可选方案一览
+------------------------------------------------------------------------
+
+方案 0：STS2 的做法——完全代码驱动
+~~~~~~~~~~~~~~~~~~~~~~
+
+STS2 从不参数化，每张卡一个 sealed class，覆写 OnPlay()：
+
+  public sealed class FiendFire : CardModel
+  {
+      protected override async Task OnPlay(...)
+      {
+          // 任意 C# 代码
+      }
+  }
+
+  - 无天花板，表达力 = C# 语言本身
+  - 代价：250+ 个类文件，策划无法直接创建卡牌
+  - STS2 用 DamageCmd/CardPileCmd/PowerCmd 等命令 API 作为"标准积木"，
+    卡牌在 OnPlay 中自由组合这些积木
+
+本项目不建议完全照搬，因为已经建立了数据驱动的设计方向。
+以下是保留数据驱动同时解决天花板的混合方案：
+
+
+方案 1：参数化 + ICustomCardLogic 接口 fallback
+~~~~~~~~~~~~~~~~~~~~~~
+
+  public interface ICustomCardLogic
+  {
+      IEnumerator Execute(CardPlayContext context);
+  }
+
+  public class CardDefinition
+  {
+      public CardDefinitionId Id;
+      public CardEffect[] Effects;          // 标准效果（参数化）
+      public string CustomLogicTypeName;    // 可选：自定义逻辑类名
+  }
+
+  // 标准卡：走 CardEffect[] 参数化流程
+  // 特殊卡：实例化 CustomLogicTypeName 指向的类，调用 Execute
+
+  // 例如 FiendFire
+  public class FiendFireLogic : ICustomCardLogic
+  {
+      public IEnumerator Execute(CardPlayContext ctx)
+      {
+          int handCount = ctx.Hand.Count;
+          // 消耗所有手牌...
+          // 造成 handCount 次伤害...
+          yield return ...;
+      }
+  }
+
+优点：
+  - 保留数据驱动：80% 的标准卡继续在 Inspector 里配置
+  - 无天花板：特殊卡用代码实现
+  - 渐进式：先全用参数化，遇到天花板时再加 ICustomCardLogic
+
+缺点：
+  - 两条执行路径增加理解成本
+  - CustomLogicTypeName 是字符串，运行时反射实例化有性能开销
+    （可通过注册表或字典缓存解决）
+  - 特殊卡的逻辑分散在两个地方（定义在 SO，逻辑在 C# 类）
+
+
+方案 2：参数化 + 动态数值来源
+~~~~~~~~~~~~~~~~~~~~~~
+
+不加自定义逻辑类，而是扩展 CardEffect 结构体，
+增加"Value 从哪来"的描述能力：
+
+  public enum ValueSource
+  {
+      Fixed,                // 固定值（当前的 Value 字段）
+      HandCardCount,        // 当前手牌数
+      DiscardPileCount,     // 弃牌堆数量
+      CurrentEnergy,        // 当前能量
+      SkillsInHand,         // 手牌中技能卡数量
+      DrawPileCount,        // 抽牌堆数量
+      ExhaustedPileCount,   // 消耗堆数量
+  }
+
+  public struct CardEffect
+  {
+      public EnumCardEffectType EffectType;
+      public EnumTargetType TargetType;
+      public EnumCardStatusType StatusType;
+      public int Value;
+      public ValueSource Source;    // 新增：数值来源
+      public int Multiplier;        // 新增：乘数（如"手牌数 x 3"）
+  }
+
+  // FiendFire: 攻击次数 = 手牌数
+  [{ DealDamage, SelectedEnemy, None, 0, HandCardCount, 1 }]
+
+  // Flechettes: 攻击次数 = 手牌中技能数
+  [{ DealDamage, SelectedEnemy, None, 5, SkillsInHand, 1 }]
+
+优点：
+  - 解决天花板 A（动态数值），仍然是纯数据
+  - 策划可以在 Inspector 中选择 ValueSource
+  - 不需要写代码
+
+缺点：
+  - 不解决天花板 B（玩家选择）和 C（条件分支）
+  - ValueSource 枚举会随需求增长
+  - Value 和 Source 两个字段的关系需要约定
+
+适用场景：大部分卡牌只需要动态数值，不需要玩家选择和条件分支时。
+
+
+方案 3：参数化 + 脚本语言
+~~~~~~~~~~~~~~~~~~~~~~
+
+引入轻量脚本引擎（如 Lua/MoonSharp），用脚本描述复杂卡牌：
+
+  CardDefinition 中增加：
+    public string ScriptPath;  // 可选：Lua 脚本路径
+
+  -- FiendFire.lua
+  function onPlay(ctx)
+      local handCount = ctx.hand:count()
+      for i, card in ctx.hand:iter() do
+          ctx:exhaust(card)
+      end
+      ctx:dealDamage(ctx.target, ctx.card.damage, handCount)
+  end
+
+优点：
+  - 脚本可热更新，不需要重新编译
+  - 策划学习 Lua 后可以自行编写复杂卡
+  - 支持 Mod
+
+缺点：
+  - 引入外部依赖（MoonSharp 等）
+  - 调试困难（Lua 调试器不如 C#）
+  - 脚本和 C# 之间的绑定层工作量大
+  - 性能开销（脚本解释执行 + 跨语言调用）
+
+适用场景：计划支持 Mod 或热更新时。
+
+
+方案 4：可视化节点图（Visual Scripting）
+~~~~~~~~~~~~~~~~~~~~~~
+
+使用 Unity 的 Visual Scripting 或自制节点编辑器：
+
+  卡牌效果用节点图描述：
+    [开始] -> [查询手牌数] -> [循环消耗每张手牌] -> [造成N次伤害] -> [结束]
+
+优点：
+  - 策划可视化编辑复杂逻辑
+  - 可以表达条件、循环、分支
+  - 不需要策划写代码
+
+缺点：
+  - 节点编辑器开发/集成工作量极大
+  - 节点图调试困难
+  - 复杂逻辑的节点图比代码更难理解
+  - 严重过度设计
+
+适用场景：大型团队，策划需要完全自主设计复杂卡牌时。
+
+
+总览对比表：
+
+  方案              | 解决天花板 | 复杂度 | 策划友好 | Mod支持 | 推荐度
+  ------------------|-----------|--------|----------|---------|-------
+  0 完全代码驱动    | A+B+C     | 低     | 差       | 差      | 不推荐（与项目方向冲突）
+  1 参数化+接口     | A+B+C     | 低     | 好（标准卡）| 差    | 推荐
+  2 参数化+动态数值 | 仅A       | 低     | 好       | 中      | 可与1组合
+  3 参数化+脚本     | A+B+C     | 高     | 中       | 好      | 需要Mod时
+  4 可视化节点      | A+B+C     | 极高   | 好       | 好      | 过度设计
+
+------------------------------------------------------------------------
+
+4. 结论
+------------------------------------------------------------------------
+
+参数化 CardEffect[] 的真正天花板有三个层次：
+  A. 动态数值（Value 依赖运行时状态）
+  B. 玩家选择（效果执行中途需要暂停等待输入）
+  C. 条件分支（后续效果依赖前一步结果）
+
+其中：
+  - 天花板 A 可通过方案 2（ValueSource 枚举）在数据层面解决
+  - 天花板 B 和 C 必须通过代码路径解决（方案 1 或方案 3）
+
+STS2 的解法是完全代码驱动（方案 0），不存在天花板问题。
+
+对本项目的建议组合：方案 1 + 方案 2
+  - 给 CardEffect 增加 ValueSource 字段（解决动态数值）
+  - 给 CardDefinition 增加可选的 ICustomCardLogic（解决玩家选择和条件分支）
+  - 标准卡继续在 Inspector 中参数化配置
+  - 特殊卡用 C# 类实现自定义逻辑
+
+这样既保留数据驱动的策划友好性，又不会被参数化锁死。
+
+========================================================================
