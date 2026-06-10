@@ -65,6 +65,10 @@ RNG = Random Number Generator（随机数生成器）。
 
 这个"起始数"就叫**种子（Seed）**。
 
+【重要说明】以上公式仅用于解释"伪随机数的原理"。
+实际项目中不需要自己实现这个公式。C# 内置的 System.Random
+已经实现了更好的算法（见 3.3 节），直接使用即可。
+
 3.2 种子（Seed）的含义
 
   种子 = 随机序列的起点。
@@ -81,19 +85,35 @@ RNG = Random Number Generator（随机数生成器）。
 不同的种子 → 不同的序列 → 不同的游戏体验。
 相同的种子 → 完全相同的序列 → 完全相同的游戏。
 
-3.3 System.Random 的使用
+3.3 System.Random —— C# 内置的伪随机数生成器
 
-C# 提供了内置的伪随机数生成器：System.Random。
+C# 标准库提供了 System.Random 类。它已经帮你实现了随机数生成算法
+（比 3.1 节的 LCG 更好），你不需要自己写任何生成公式。
 
-  System.Random rng = new System.Random(42);  // 种子 = 42
+System.Random 的核心特征：
 
-  rng.Next(10);   // 返回 0~9 之间的整数
-  rng.Next(10);   // 返回下一个 0~9 之间的整数
-  rng.Next(10);   // 返回再下一个...
+  a) 它是一个有状态的对象（实例），不是静态工具类。
+     你必须 new 一个实例出来，它内部维护着"当前走到序列哪一步"。
 
-如果你创建两个 System.Random(42)，调用相同次数的 Next，
-结果完全一致：
+  b) 每次调用 Next()，内部状态前进一步，返回序列中的下一个数。
 
+  c) 这个实例必须被持久保存。如果实例被销毁，内部状态就丢失了。
+     重新 new 一个相同种子的实例，会从序列的第一步重新开始，
+     而不是从上次中断的地方继续。
+
+基本用法：
+
+  // 创建实例，给定种子 42
+  System.Random random = new System.Random(42);
+
+  random.Next(10);   // → 6  （内部状态：第1步）
+  random.Next(10);   // → 1  （内部状态：第2步）
+  random.Next(10);   // → 8  （内部状态：第3步）
+  // 每次调用 Next()，实例的内部状态都在改变
+
+确定性验证：
+
+  // 两个实例，相同种子，调用相同次数的 Next，结果完全一致
   System.Random rng1 = new System.Random(42);
   System.Random rng2 = new System.Random(42);
 
@@ -102,6 +122,35 @@ C# 提供了内置的伪随机数生成器：System.Random。
   rng1.Next(10) == rng2.Next(10)   // true，永远相等
 
 这就是确定性的本质。STS2 的 Rng 类底层就是 System.Random。
+
+实例必须保持存活的原因：
+
+  // 错误：每次重新创建实例
+  new System.Random(42).Next(10);   // → 6
+  new System.Random(42).Next(10);   // → 6（又是 6！从头开始了）
+  new System.Random(42).Next(10);   // → 6（永远是 6）
+
+  // 正确：保持同一个实例
+  System.Random random = new System.Random(42);
+  random.Next(10);   // → 6
+  random.Next(10);   // → 1（前进到第 2 步）
+  random.Next(10);   // → 8（前进到第 3 步）
+
+因此，在架构设计中，System.Random 实例必须被某个管理者持有和保存。
+在本项目中，这个管理者就是 SeedManager。
+
+需要自己实现 vs 不需要自己实现：
+
+  不需要自己实现：
+    - 随机数生成算法（System.Random 已内置）
+    - 3.1 节的 LCG 公式（仅为原理说明）
+
+  需要自己实现：
+    - Seed 结构体（包装 uint，已完成）
+    - 确定性哈希函数（从主种子派生子种子，见第 4 节）
+    - Counter 追踪（记录调用次数，用于存档/读档）
+    - SeedManager（管理所有 Seed 和 System.Random 实例）
+    - Fisher-Yates 洗牌（见第 7 节）
 
 3.4 Counter（计数器）的含义
 
