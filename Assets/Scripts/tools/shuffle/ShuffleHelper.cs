@@ -11,7 +11,7 @@ namespace tools.shuffle
         // The caller selects the RNG stream by passing its NextInt method, e.g.
         // randomManager.ShuffleNextInt for card piles or randomManager.ItemNextInt for items,
         // so each domain stays on its own deterministic stream.
-        public static void Shuffle<T>(IList<T> list, Func<int, int> nextIntExclusive)
+        public static void Shuffle<T>(IList<T> list, Func<int, int> nextIntExclusive) // Question: What is the difference between IList and List??
         {
             MyAssert.Assert(list != null, "list must not be null");
             MyAssert.Assert(nextIntExclusive != null, "nextIntExclusive must not be null");
@@ -23,5 +23,7 @@ namespace tools.shuffle
                 (list[i], list[j]) = (list[j], list[i]);
             }
         }
+        
+        // Todo: Implement StableShuffle, sort the list first to prevent same seed, different input cause different result.
     }
 }

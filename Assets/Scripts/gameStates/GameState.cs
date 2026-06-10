@@ -1,7 +1,9 @@
-﻿using cards.definition;
+﻿using System.Collections.Generic;
+using cards.definition;
 using cards.instance;
 using enums;
 using random;
+using tools.shuffle;
 
 namespace gameStates
 {
@@ -13,14 +15,20 @@ namespace gameStates
         public CardDefinitionManager CardDefinitionManager = new CardDefinitionManager();
         public SeedManager SeedManager = new SeedManager();
         public RandomManager RandomManager = new RandomManager();
-        public DeckManager DeckManager = new DeckManager();
+        public CardInstanceManager CardInstanceManager = new CardInstanceManager();
         
         public void Init(CardDefinitionLibrary library)
         {
-            SeedManager.Init(42u); // Use 42u for testing. Todo: Let user choose the seed, or generate seed
+            SeedManager.Init(41u); // Use 42u for testing. Todo: Let user choose the seed, or generate seed
             RandomManager.Init(SeedManager);
             CardDefinitionManager.Init(library);
-            // DeckManager.Init();
+            CardInstanceManager.AddCardToDeck(CardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
+            CardInstanceManager.AddCardToDeck(CardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
+            CardInstanceManager.AddCardToDeck(CardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
+            CardInstanceManager.AddCardToDeck(CardDefinitionManager.Get(new CardDefinitionId("防御"))); // Test
+            CardInstanceManager.AddCardToDeck(CardDefinitionManager.Get(new CardDefinitionId("防御"))); // Test
+            CardInstanceManager.AddCardToDeck(CardDefinitionManager.Get(new CardDefinitionId("防御"))); // Test
+            ShuffleHelper.Shuffle(CardInstanceManager.CardInstances, RandomManager.ShuffleNextInt);
         }
     }
     

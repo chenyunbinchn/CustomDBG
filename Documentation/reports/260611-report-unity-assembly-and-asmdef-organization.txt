@@ -1,0 +1,123 @@
+========================================================================
+  报告：Unity 程序集组织——默认单 assembly、asmdef 与 csproj、专业实践
+  生成日期：2026-06-11
+========================================================================
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+承《260611-report-namespace-vs-assembly》：要把分层规则变成编译错误，
+需要把代码拆成独立程序集，Unity 里的手段是 asmdef。本报告说明 Unity
+为何默认只有一个 assembly、asmdef 与 csproj 是什么关系、以及专业项目
+是否使用 asmdef、维护成本如何、本项目何时该上。
+
+------------------------------------------------------------------------
+
+2. 代码分析（项目现状）
+------------------------------------------------------------------------
+
+  Glob 'Assets/**/*.asmdef' 结果：无。
+  本项目所有脚本进入预定义程序集，约等于一个 Assembly-CSharp。
+  当前规模小、单人、核心系统仍在设计期。
+
+------------------------------------------------------------------------
+
+3. 三个问题
+------------------------------------------------------------------------
+
+3.1 为什么 Unity 默认只有一个 assembly
+
+  严格说不是"一个"，而是少数预定义程序集，对普通 gameplay 代码约等于
+  一个：
+    - Assembly-CSharp.dll        —— 绝大多数运行时脚本
+    - Assembly-CSharp-Editor.dll —— Editor/ 文件夹脚本
+    - Assembly-CSharp-firstpass  —— Plugins/、Standard Assets/ 等
+
+  设计原因：
+    a) 零配置、易上手：把 .cs 丢进 Assets 就能跑，不必先定义工程结构。
+    b) 默认全员互相可见：一个大筐里任意脚本可调任意脚本，利于原型。
+    c) 历史：Unity 早年多语言 + 固定多趟编译管线；asmdef 是 2017.3 才
+       加入的可选项，之前无法（除预编译 dll）拆程序集。
+
+  代价（也就是大项目为何主动上 asmdef）：
+    - 编译慢：改任一脚本，整个 Assembly-CSharp 全量重编。
+    - 架构无法强制：全员互相可见，分层规则没有编译器保障。
+    - internal 形同虚设：全在一个程序集，internal ≈ public。
+    - 死代码难剔、测试难隔离、包/插件边界模糊。
+
+3.2 asmdef 与 csproj 是什么关系
+
+  - csproj：.NET/MSBuild 的标准工程文件，是 C# 编译器真正的输入单元，
+    一个 csproj → 一个 assembly。纯 .NET 项目里 csproj 是手写的、即工程
+    本身。
+  - asmdef：Unity 专有的 JSON 声明，给 Unity 看，用来切分 assembly 边界。
+
+  关系（关键）：
+        你写的 .asmdef ──Unity 生成──▶ .csproj ──Roslyn──▶ .dll
+           (真相)                       (给 IDE 用)        (产物)
+
+    - 每个 .asmdef → Unity 自动生成一个对应 .csproj（+ .sln）。
+    - 没有 asmdef 的脚本，Unity 同样生成 Assembly-CSharp.csproj 等。
+    - asmdef 字段映射进 csproj：references→ProjectReference；
+      includePlatforms/defineConstraints→编译条件/DefineConstants；
+      allowUnsafeCode→AllowUnsafeBlocks；等。
+
+  两个易踩点：
+    - 生成的 csproj 是派生物，手改无效，Unity 重新生成时整个覆盖；
+      要改编译行为改 asmdef（或 csc.rsp）。
+    - 真正打包游戏（Player Build）不走 csproj/MSBuild：Unity 读 asmdef
+      决定划分后直接调 Roslyn 出 dll，再走 IL2CPP/平台裁剪。csproj/.sln
+      纯粹喂给 VS/Rider/VSCode 做 IntelliSense、跳转、断点。
+
+3.3 专业项目是否用 asmdef、维护成本
+
+  使用情况（可验证）：
+    - Unity 官方 Package（com.unity.*）无一例外都带 asmdef：URP、HDRP、
+      Cinemachine、Input System、Netcode、Addressables、TextMeshPro 等。
+    - DOTS/Entities 基本强制 asmdef 纪律。
+    - 官方示例工程（BoatAttack、FPS Sample、Megacity）均 asmdef 组织。
+    - 新立项的中大型团队普遍采用，主要冲着"增量编译 + 强制分层"。
+    - 但 2017.3 之前的遗留大项目大量仍泡在单 Assembly-CSharp。
+
+  维护成本（真实摩擦）：
+    - 引用要手动连，漏了就"类型找不到"。
+    - Assembly-CSharp 单向引用陷阱：未入 asmdef 的脚本能看到 asmdef
+      类型，但 asmdef【无法】反向引用 Assembly-CSharp → 常被迫把更多
+      代码搬进 asmdef，形成"迁移雪崩"。
+    - Editor/Test 代码要单独 asmdef，一个功能模块可能要 2~3 个。
+    - 循环依赖当场编译报错，逼你引入接口/事件/更低层共享程序集来解环
+      （好的痛，但是 work）。
+    - 切太碎反而更糟：dll 数量开销、domain reload 变慢、管理负担。
+
+  切分甜区：
+    - 按"层/功能"切，数量控制在十几到几十个，不按类切。
+    - 稳定底层先上 asmdef，高频迭代玩法层可晚拆。
+    - 成本前置，收益随项目变大持续兑现。
+
+------------------------------------------------------------------------
+
+4. 方案：本项目何时上 asmdef
+------------------------------------------------------------------------
+
+  现在不上（维持单 assembly + 约定/自律），理由：规模小、单人、系统
+  在设计期，asmdef 的前置成本此刻不划算。
+
+  上 asmdef 的触发信号（任一出现）：
+    - 编译开始明显卡顿（改一行等好几秒）；
+    - 团队/代码量大到需要强制别人不要乱跨层引用。
+
+  现在能做、且零成本的准备：把 namespace 分层（tools/random/cards/
+  systems 的依赖方向）想清楚——将来上 asmdef 时，边界基本照此切。
+
+------------------------------------------------------------------------
+
+5. 结论
+------------------------------------------------------------------------
+
+Unity 为易用与历史原因默认单 assembly，代价是编译全量重编、分层无法
+强制。asmdef 是 Unity 切分程序集的真相，csproj 是它生成给 IDE 的影子，
+Player Build 不经 csproj。专业/中大型项目普遍用 asmdef（官方包全部如此），
+但维护有真实摩擦，需按甜区切分。本项目现阶段维持单 assembly 即可，
+先把 namespace 分层规划好，作为未来 asmdef 边界的蓝图。
+
+========================================================================

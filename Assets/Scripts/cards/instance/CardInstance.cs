@@ -5,13 +5,13 @@ namespace cards.instance
 {
     public class CardInstance
     {
-        public CardDefinitionId DefinitionId;
+        public CardDefinition Definition;
         public CardInstanceId Id;
         public EnumEnchantmentType Enchantment;
 
-        public CardInstance(CardDefinitionId definitionId, CardInstanceId id, EnumEnchantmentType enchantment)
+        public CardInstance(CardDefinition definition, CardInstanceId id, EnumEnchantmentType enchantment)
         {
-            DefinitionId = definitionId;
+            Definition = definition;
             Id = id;
             Enchantment = enchantment;
         }

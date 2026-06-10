@@ -1,0 +1,145 @@
+========================================================================
+  报告：洗牌的确定性增强——先排序再洗（StableShuffle）与 STS2 对照
+  生成日期：2026-06-11
+========================================================================
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+Fisher-Yates 洗牌算法本身（为何降序遍历、上界为何取 i+1、原地交换）
+已在《260610-report-random-system-fundamentals》中讲过，本报告不再重复。
+
+本报告只聚焦一个更窄、更容易被忽略的问题：
+
+  即使用了固定种子，洗牌结果也可能不一致——因为标准 Fisher-Yates
+  的结果不仅取决于随机序列，还取决于【输入列表的初始顺序】。
+
+这对有"输入回放"（见《260610-report-replay-recording-granularity》
+方案 A）和未来多端一致需求的本项目是一个隐藏陷阱。本报告分析其
+成因，并给出消除"输入顺序依赖"的 StableShuffle（先排序再洗）技巧，
+对照 STS2 的实现。
+
+------------------------------------------------------------------------
+
+2. 代码分析
+------------------------------------------------------------------------
+
+2.1 当前实现是"不稳定洗牌"（Unstable）
+
+  来源：Assets/Scripts/tools/shuffle/ShuffleHelper.cs
+
+    for (int i = list.Count - 1; i > 0; i--)
+    {
+        int j = nextIntExclusive(i + 1);
+        (list[i], list[j]) = (list[j], list[i]);
+    }
+
+  这是标准 Durstenfeld 版 Fisher-Yates，正确无误。但它的最终排列是
+  一个二元函数：
+
+        结果 = f(输入列表的初始顺序, RNG 给出的 j 序列)
+
+  关键：交换操作作用在【下标】上，而不是【元素本身】上。给定相同
+  种子，RNG 会吐出完全相同的 j 序列；但如果传入的 list 初始顺序不同，
+  同一串 j 序列交换的是不同位置的元素，得到的最终排列就不同。
+
+2.2 一个具体例子
+
+  种子固定，RNG 序列固定，假设 i=2 时 j=0、i=1 时 j=1。
+
+    输入 [A,B,C]：i=2 换(2,0) → [C,B,A]；i=1 换(1,1) → [C,B,A]
+    输入 [B,A,C]：i=2 换(2,0) → [C,A,B]；i=1 换(1,1) → [C,A,B]
+
+  同样的种子、同样的 RNG 消耗，只因输入顺序不同，结果不同。
+  → 若录制时抽牌堆是 [A,B,C]，回放时因某处非确定性变成 [B,A,C]，
+    哪怕种子一样，洗出来也不一样，回放发散。
+
+2.3 输入顺序为何可能在录制/回放间漂移
+
+  - 牌堆来源若经过 Dictionary/HashSet 遍历（遍历顺序不保证）
+  - 多线程/异步导致的加入顺序差异
+  - 不同代码版本构建初始牌组的顺序变化
+
+  本项目目前牌堆是 List（来源：Assets/Scripts/gameStates/
+  BattleCardState.cs 的 DrawPile 等），List 本身有序，但"谁先被加进
+  这个 List"仍取决于上游构建逻辑是否确定。
+
+2.4 STS2 的做法：StableShuffle = 先排序再洗
+
+  来源：D:\Decompiled Projects\Slay the Spire 2\src\Core\Extensions\
+        ListExtensions.cs
+
+    public static List<T> StableShuffle<T>(this List<T> list, Rng rng)
+        where T : IComparable<T>
+    {
+        List<T> list2 = list.ToList();
+        list2.Sort();              // ① 先排成唯一的规范顺序
+        for (...) list[i] = list2[i];
+        return list.UnstableShuffle(rng);   // ② 再做 Fisher-Yates
+    }
+
+    public static List<T> UnstableShuffle<T>(this List<T> list, Rng rng)
+    { /* 标准 Fisher-Yates */ }
+
+  先把列表 Sort 成与输入顺序无关的唯一规范序，再洗。这样：
+
+        结果 = f(集合内容, RNG 序列)        // 输入顺序被消除
+
+  约束 where T : IComparable<T> —— 元素必须可比较、可定义全序。
+
+  STS2 在抽牌堆重洗时正是调用它（CardPileCmd.Shuffle：
+  list.StableShuffle(player.RunState.Rng.Shuffle)）。
+
+2.5 本项目的类型现状
+
+  来源：Assets/Scripts/cards/instance/CardInstanceId.cs
+  CardInstanceId 是 readonly struct，有 uint Value，实现了 IEquatable，
+  但【未实现】IComparable<CardInstanceId>。要套用 StableShuffle 需先补上
+  按 Value 的全序比较。
+
+------------------------------------------------------------------------
+
+3. 方案对比
+------------------------------------------------------------------------
+
+方案 A：只用 Unstable（保持现状）
+  做法：维持 ShuffleHelper.Shuffle，不排序。
+  优点：最简单；无排序开销；泛型无 IComparable 约束。
+  缺点：把"洗牌可复现"的责任甩给上游——要求每次洗牌前列表初始顺序
+        本身确定。一旦上游某处非确定，回放静默发散，且极难排查。
+
+方案 B：提供 StableShuffle（先排序再洗）
+  做法：新增重载 Shuffle<T>(IList<T>, Func<int,int>) where T:IComparable<T>，
+        内部 Sort 后再走现有 Fisher-Yates；给 CardInstanceId 实现
+        IComparable<CardInstanceId>（按 Value 比较）。
+  优点：洗牌结果只依赖{集合+种子}，与输入顺序彻底解耦；回放/多端
+        一致最稳；与 STS2 实践一致。
+  缺点：多一次 O(n log n) 排序；元素需可比较；泛型多一个约束（需要
+        两个重载或拆成两个方法以兼顾不可比较类型）。
+
+方案 C：不排序，转而保证输入来源的确定性
+  做法：不动洗牌，改为审计并保证所有牌堆构建路径都是确定顺序
+        （只用 List、禁止用 Dictionary/HashSet 遍历产出牌序）。
+  优点：无排序开销；洗牌保持纯泛型。
+  缺点：脆弱——确定性约束散落在整个代码库，任何一处疏漏都破功；
+        靠规范和自律维持，无单点防御。
+
+------------------------------------------------------------------------
+
+4. 结论
+------------------------------------------------------------------------
+
+若本项目要落实方案 A 的输入回放（见回放报告结论），洗牌的"输入顺序
+依赖"必须被处理，二选一：
+
+  - 严格起见，推荐方案 B：为 CardInstanceId 实现 IComparable，
+    并提供 StableShuffle 重载，在抽牌堆重洗这类回放关键路径上使用。
+    把确定性收敛到洗牌这一个单点，而非依赖全局自律。
+  - 若暂不做严格回放，方案 A（现状）够用，但需在文档中明确记下
+    "洗牌结果依赖输入顺序"这一前提，避免日后回放踩坑。
+
+注意：方案 B 的"先排序"只解决【输入顺序】这一维度的确定性；种子、
+集合遍历顺序等其它确定性要求仍由随机系统与回放方案各自负责
+（见《...random-system-fundamentals》与回放报告第 7 节）。
+
+========================================================================

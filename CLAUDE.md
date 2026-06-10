@@ -19,6 +19,14 @@ All documentation files use: YYMMDD-{type}-{description}.txt
 3. Detailed solution overview (all viable options with pros/cons)
 4. Brief conclusion
 
+### Report scope
+Keep each report small and focused — one report covers ONE topic/direction, not many.
+- A report should answer a single question; if it spans multiple concerns, split it into several narrow reports.
+- Prefer many small reports over one broad report.
+- Do not duplicate content already covered by an existing report. Check Documentation/reports/ first; if a topic is already covered, append a focused section to that report or cross-reference it instead of re-explaining.
+- Cross-reference related reports by filename (e.g. 《260611-report-namespace-vs-assembly》) so a narrow report can lean on others rather than absorbing them.
+- When a broad "study" (e.g. analyzing another codebase) touches several topics, distribute its findings into the relevant topical reports rather than making one catch-all report.
+
 ## Task Management
 
 Task location: kcg-game/b1.tasks/
