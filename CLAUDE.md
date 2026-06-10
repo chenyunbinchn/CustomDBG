@@ -5,6 +5,7 @@
 - Reports (analysis/research): Documentation/reports/ (.txt format, Chinese)
 - Rules (project conventions): Documentation/rules/ (.txt format)
 - Tasks (code generation tasks): Documentation/tasks/ (.txt format)
+- Default logs (mistake records): Documentation/defaults/ (.txt format, Chinese)
 
 ### File naming convention
 All documentation files use: YYMMDD-{type}-{description}.txt
@@ -39,6 +40,19 @@ When creating a PR for a task:
 
 ### Multi-solution proposal
 When suggesting code architecture, design patterns, or implementation approaches, always list ALL viable solutions with pros/cons comparison, so the developer can make an informed choice. Never default to a single approach without presenting alternatives.
+
+### Default logging
+When a mistake is identified (misleading explanation, incorrect claim, ambiguous wording that caused confusion), immediately write a default log to Documentation/defaults/ using the standard naming convention (YYMMDD-default-{description}.txt). The log must include:
+1. What went wrong (the exact misleading content)
+2. Root cause analysis (why it happened)
+3. Correction applied (what was fixed)
+4. Lesson learned (rule to prevent recurrence)
+
+### Disambiguation in explanations
+When explaining a concept that could be confused with a previously discussed or similar concept:
+1. Explicitly state what the concept IS for and what it is NOT for
+2. Avoid ambiguous metaphors — use precise terminology tied to the specific system/feature
+3. If a concept serves System A but not System B, say so upfront, especially when System B is the current topic of discussion
 
 ## Coding Rules
 
