@@ -1,5 +1,6 @@
 ﻿using cards.definition;
 using gameStates;
+using gameStates.persistant;
 using UnityEngine;
 
 namespace mono

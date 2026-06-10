@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using cards.instance;
 
-namespace gameStates
+namespace gameStates.transient
 {
     public class BattleCardState
     {

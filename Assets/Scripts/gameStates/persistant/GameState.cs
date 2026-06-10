@@ -1,11 +1,11 @@
-﻿using System.Collections.Generic;
-using cards.definition;
+﻿using cards.definition;
 using cards.instance;
 using enums;
+using gameStates.transient;
 using random;
 using tools.shuffle;
 
-namespace gameStates
+namespace gameStates.persistant
 {
     public class GameState
     {

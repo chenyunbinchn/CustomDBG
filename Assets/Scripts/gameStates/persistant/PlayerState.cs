@@ -1,4 +1,4 @@
-﻿namespace gameStates
+﻿namespace gameStates.persistant
 {
     public class PlayerState
     {
