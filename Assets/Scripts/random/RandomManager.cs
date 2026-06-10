@@ -1,4 +1,5 @@
 using tools;
+using tools.assert;
 
 namespace random
 {

@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b40ca3e4a8fc4751a6be97531d93b043, type: 3}
+  m_Name: AllCardDefinitionLibrary
+  m_EditorClassIdentifier: Assembly-CSharp::cards.definition.CardDefinitionLibrary
+  definitionSOs:
+  - idName: "\u653B\u51FB"
+    cardType: 3
+    energyCost: 1
+    effectAuthoringArray:
+    - effectType: 1
+      targetType: 3
+      statusType: 0
+      value: 6
+    description: "\u5BF9\u4E00\u540D\u654C\u4EBA\u9020\u62106\u70B9\u4F24\u5BB3 "
+    image: {fileID: 10913, guid: 0000000000000000f000000000000000, type: 0}
+  - idName: "\u9632\u5FA1"
+    cardType: 1
+    energyCost: 1
+    effectAuthoringArray:
+    - effectType: 3
+      targetType: 1
+      statusType: 0
+      value: 5
+    description: "\u83B7\u5F975\u70B9\u9632\u5FA1"
+    image: {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
