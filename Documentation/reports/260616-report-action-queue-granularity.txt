@@ -1,0 +1,196 @@
+========================================================================
+  报告：Action 队列的粒度——意图级 vs 效果级（基于 STS2 实代码）
+  生成日期：2026-06-16
+========================================================================
+
+修订记录：
+  2026-06-16 初稿：读 STS2 GameAction / PlayCardAction / CardModel.
+             OnPlayWrapper / Whirlwind.OnPlay / DamageCmd 实代码，确认
+             STS2 是"意图级队列 + 命令式效果"两层，澄清此前误判的
+             "效果级 action 队列"，对比 CustomDBG 的粒度选择。
+
+------------------------------------------------------------------------
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+《260613-report-action-queue-and-executor》设计了 Queue / Executor，但
+回避了一个前置问题：队列里的 GameAction 该是什么【粒度】？
+
+  - 效果级：一张卡被拆成 DealDamageAction / DrawCardsAction 等细粒度
+    Action 入队，队列元素就是"一个效果"。
+  - 意图级：队列只装 PlayCardAction（"打这张牌"）这种玩家意图，卡牌
+    效果在别处展开，队列元素是"一次玩家决策"。
+
+此前讨论与报告里多处隐含"效果级队列"（如 PlayCardAction 入队
+DealDamageAction），并标注"参考 STS2"。读 STS2 实代码后证实该假设
+不成立，已记 Documentation/defaults/260616-default-gameaction-granularity。
+本报告基于实代码厘清 STS2 的真实分层，并据此给 CustomDBG 的粒度选择。
+
+------------------------------------------------------------------------
+
+2. 代码分析（STS2 的两层执行架构）
+------------------------------------------------------------------------
+
+2.1 第一层：意图级 GameAction 队列
+
+  来源：src/Core/GameActions/ 目录
+    全部 GameAction 子类均为玩家意图级粗粒度命令：
+      PlayCardAction / UsePotionAction / EndPlayerTurnAction /
+      PickRelicAction / DiscardPotionGameAction / MoveToMapCoordAction /
+      VoteForMapCoordAction / ReadyToBeginEnemyTurnAction ...
+    目录中【没有】DealDamageAction / DrawCardsAction / GainBlockAction
+    这类效果级 Action。
+
+  来源：src/Core/GameActions/PlayCardAction.cs:58,99
+    protected override async Task ExecuteAction() {
+        ...
+        await _card.OnPlayWrapper(PlayerChoiceContext, target, isAutoPlay:false, resources);
+    }
+  PlayCardAction 的"业务逻辑"只是：校验 → 扣资源（SpendResources）→
+  把控制权交给卡牌的 OnPlayWrapper。它【不】入队任何效果级 Action。
+
+  这一层承担的职责（见 GameAction.cs:11 基类）：
+    - 暂停等玩家选择（State 机 + PauseForPlayerChoice，见 GameAction.cs:123）
+    - 多人同步（ToNetAction，GameAction.cs:149）
+    - 回放可记录性（RecordableToReplay，GameAction.cs:35）
+    - 确定性排序（Id，ActionQueueSet 取最小 Id）
+
+2.2 第二层：效果级 OnPlay + 命令（Command）
+
+  来源：src/Core/Models/CardModel.cs:1448 OnPlayWrapper（节选）
+    public async Task OnPlayWrapper(..., ResourceInfo resources, ...) {
+        await CardPileCmd.AddDuringManualCardPlay(this);   // 牌堆移动
+        ...
+        int playCount = await GeneratePlayCount(combatState, target); // (A)
+        for (int i = 0; i < playCount; i++) {                          // (B)
+            ...
+            await Hook.BeforeCardPlayed(combatState, cardPlay);
+            await OnPlay(choiceContext, cardPlay);                     // (C)
+            ...
+        }
+    }
+
+  (A) playCount 由 Hook.ModifyCardPlayCount 决定（如 OneTwoPunchPower
+      使攻击牌 +1 次，见 src/Core/Models/Powers/OneTwoPunchPower.cs:19）。
+  (B) 【重放 N 次 = 一个 for 循环】，不是入队 N 个 Action。
+  (C) 每次循环调用一次卡牌的 OnPlay。
+
+  来源：src/Core/Models/CardModel.cs:1283
+    protected virtual Task OnPlay(PlayerChoiceContext, CardPlay)
+        => Task.CompletedTask;     // 默认空，子类 override
+
+  来源：具体卡 src/Core/Models/Cards/Whirlwind.cs:31,42
+    protected override async Task OnPlay(PlayerChoiceContext ctx, CardPlay cardPlay) {
+        ...
+        await DamageCmd.Attack(base.DynamicVars.Damage.BaseValue)  // (D)
+            .WithHitCount(num)
+            .FromCard(this)
+            .TargetingAllOpponents(base.CombatState)
+            .WithHitFx("vfx/vfx_giant_horizontal_slash")
+            .Execute(choiceContext);                               // (E)
+    }
+
+  (D) 伤害基础值直接读 this.DynamicVars.Damage.BaseValue —— 即卡的【实例
+      可变数值】（见《260613-report-card-value-mutation-in-battle》：战斗中
+      "+2"写的就是这个 BaseValue，重放每次都重读，故能反映本场加成）。
+  (E) 效果用 fluent builder 命令（DamageCmd → AttackCommand，见
+      src/Core/Commands/DamageCmd.cs:6），在 OnPlay 内部 await 直接执行，
+      内部过修改器链、写 Creature.Hp、播动画。【全程不入 GameAction 队列】。
+
+2.3 结论性观察（STS2 的真实分层）
+
+  ┌─ 意图级队列 (GameAction) ─────────────────────────────┐
+  │  PlayCardAction / UsePotionAction / EndPlayerTurnAction │
+  │  职责：暂停等选择、多人同步、回放、确定性排序          │
+  └───────────────┬───────────────────────────────────────┘
+                  │ PlayCardAction.ExecuteAction → _card.OnPlayWrapper
+                  ▼
+  ┌─ 效果级 (OnPlay + Command) ────────────────────────────┐
+  │  OnPlayWrapper: 牌堆移动 + playCount + for 循环          │
+  │    └─ for i in playCount: await OnPlay(...)             │
+  │         └─ DamageCmd.Attack(...).WithHitCount().Execute()│
+  │  职责：实际伤害/格挡/抽牌，命令式 await，不入意图队列   │
+  └────────────────────────────────────────────────────────┘
+
+  即"效果级 Action 入队"是 STS1 GameActionManager 风格的心智模型，
+  STS2 已重构为"意图级队列 + 命令式效果"。注意：本报告未持有 STS1 本地
+  代码，故 STS1 的具体实现细节不在此断言（依 CLAUDE.md 证据要求）；
+  仅以"效果级队列"作为一个抽象设计选项参与下文对比。
+
+------------------------------------------------------------------------
+
+3. CustomDBG 的粒度选择
+------------------------------------------------------------------------
+
+方案 1：意图级队列 + 命令式效果（STS2 实证）
+  原理：队列只装 PlayCardAction / EndTurnAction / EnemyMoveAction 等
+        意图；效果在卡的 OnPlay（或等价函数）里用命令/自由函数直接
+        执行；重放 N 次 = OnPlay 外层 for 循环。
+  优点：
+    - 队列简单（元素少、粒度粗），Executor 逻辑轻。
+    - 一张卡的逻辑集中在一个 OnPlay 里，顺序可读、易调试。
+    - 重放 N 次是朴素 for 循环（回应"N 次调用链不优雅"：STS2 就是
+      for 循环调 N 次，每次重读可变 BaseValue）。
+    - 暂停落点清晰：选目标在意图级（打牌前已选），选牌等在效果命令内
+      await。
+  缺点：
+    - 效果的动画时序、效果内暂停要在 OnPlay/命令内自行 await，不由
+      队列统一调度。
+    - 效果不是独立可序列化单元 → 回放须走 input-level（记录意图 + 种子
+      重跑，见《260610-report-replay-recording-granularity》），而非
+      重放 effect 流。
+
+方案 2：效果级队列（STS1 式心智模型）
+  原理：队列装 DealDamageAction / DrawCardsAction；PlayCardAction 把卡
+        拆成效果 Action 入队。
+  优点：
+    - 动画节拍、暂停由队列统一调度。
+    - effect 是独立单元，便于 action-level 回放 / 中途插入。
+  缺点：
+    - 队列元素爆炸；一张卡逻辑被打散到多个 Action，可读性差。
+    - 自产 Action 的耦合问题（见《260609-report-action-system》第 5.1 节）。
+    - 与 STS2 实证相悖。
+
+方案 3：混合（意图级队列为主，少数效果包成队列 Action）
+  原理：多数效果在 OnPlay 内命令式执行；仅少数需要"队列级暂停/动画
+        节拍"的效果包成 Action 入队。
+  优点：常见路径走方案 1 的简单，特殊路径借方案 2 的统一调度。
+  缺点：两套并存，需约定何时用哪条；认知成本上升。
+
+对比总览：
+  方案          | 队列复杂度 | 卡逻辑可读性 | 重放N次 | 与STS2 | 回放粒度
+  --------------|------------|--------------|---------|--------|----------
+  1 意图级+命令 | 低         | 高(集中)     | for循环 | 一致   | input-level
+  2 效果级队列  | 高         | 低(打散)     | 入队N个 | 相悖   | action-level
+  3 混合        | 中         | 中           | 视情况  | 部分   | input-level
+
+------------------------------------------------------------------------
+
+4. 结论
+------------------------------------------------------------------------
+
+STS2 实代码（PlayCardAction:99 → CardModel.OnPlayWrapper:1448 →
+OnPlay:1507 → DamageCmd.Execute）证明其为【意图级队列 + 命令式效果】
+两层，效果不入 GameAction 队列；"重放 N 次"是 OnPlayWrapper 的 for
+循环（CardModel.cs:1481），非入队 N 个效果 Action。
+
+对 CustomDBG 推荐【方案 1】：
+  - 单人，无需 effect 级的多人同步/精细回放（回放走 input-level）；
+  - 一张卡逻辑集中在一个 OnPlay，可读性优；
+  - 重放 N 次用 for 循环，简单且天然反映实例可变数值；
+  - 暂停分两处落地：选目标在意图级 GameAction，效果内选择在命令 await。
+
+影响：《260613-report-action-queue-and-executor》4.1 节"foreach effect
+入队子 Action"的数据流应理解为【方案 2（效果级队列）的画法】，并非
+STS2 现状，也非本报告推荐；若采纳方案 1，该数据流应改为"PlayCardAction
+→ OnPlay 内命令式执行效果，不入队子 Action"。是否回改 260613 由开发者
+决定。
+
+交叉引用：意图级队列与执行器机制见《260613-report-action-queue-and-
+executor》；Action 表示形态见《260609-report-action-system》；实例可变
+数值见《260613-report-card-value-mutation-in-battle》；修改器链见
+《260609-report-modifier-chain》；回放粒度见《260610-report-replay-
+recording-granularity》。
+
+========================================================================

@@ -19,6 +19,23 @@ All documentation files use: YYMMDD-{type}-{description}.txt
 3. Detailed solution overview (all viable options with pros/cons)
 4. Brief conclusion
 
+### Evidence requirement (no memory-based claims)
+Reports MUST be grounded in actual source code, read and cited (file path +
+line numbers), not in memory or recollection of how a system "usually" works.
+- Before claiming "reference implementation X does Y", open X's source and confirm.
+- Distinguish "this is X's actual behavior (cited)" from "this is a candidate
+  design for this project" — never present the latter as the former.
+- If the source is unavailable locally (e.g. a different version), say so
+  explicitly and mark the statement as unverified rather than asserting it.
+- Exception: only when the user explicitly says to answer from memory/general
+  knowledge may a report rely on unverified recollection.
+
+### Report revision log
+Every report carries a 修订记录 block right under the title. On every change
+(create or edit), add one line: `YYYY-MM-DD <one-sentence description of the change>`.
+- First creation logs the initial draft; later edits append a new dated line.
+- Keep each line to a single sentence summarizing what changed.
+
 ### Report scope
 Keep each report small and focused — one report covers ONE topic/direction, not many.
 - A report should answer a single question; if it spans multiple concerns, split it into several narrow reports.
