@@ -3,7 +3,8 @@
     "allow": [
       "Bash(find \"D:\\\\Decompiled Projects\\\\Slay the Spire 2\" -type d -name \"*ard*\" -o -type d -name \"*src*\" -o -type d -name \"*Core*\" 2>/dev/null | head -20)",
       "Bash(find \"D:\\\\Decompiled Projects\\\\Slay the Spire 2\" -type d -name \"*card*\" -o -type d -name \"*Card*\" 2>/dev/null | head -20)",
-      "Bash(cd \"D:/Data/Unity Projects/CustomDBG/Documentation/reports\" && mv \"action-system-implementation.txt\" \"260609-report-action-system.txt\" && mv \"modifier-chain-implementation.txt\" \"260609-report-modifier-chain.txt\" && mv \"parameterized-effect-ceiling.txt\" \"260609-report-parameterized-effect-ceiling.txt\" && mv \"260607-battle-logic-requirements-and-implementation-report.md\" \"260607-report-battle-logic-requirements.txt\" && mv \"260607-missing-modules-report.md\" \"260607-report-missing-modules.txt\")"
+      "Bash(cd \"D:/Data/Unity Projects/CustomDBG/Documentation/reports\" && mv \"action-system-implementation.txt\" \"260609-report-action-system.txt\" && mv \"modifier-chain-implementation.txt\" \"260609-report-modifier-chain.txt\" && mv \"parameterized-effect-ceiling.txt\" \"260609-report-parameterized-effect-ceiling.txt\" && mv \"260607-battle-logic-requirements-and-implementation-report.md\" \"260607-report-battle-logic-requirements.txt\" && mv \"260607-missing-modules-report.md\" \"260607-report-missing-modules.txt\")",
+      "Bash(grep -i \"\\\\.cs$\")"
     ]
   }
 }
