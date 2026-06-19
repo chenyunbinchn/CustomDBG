@@ -1,5 +1,4 @@
 ﻿using cards.definition;
-using gameStates;
 using gameStates.persistant;
 using UnityEngine;
 
@@ -18,11 +17,7 @@ namespace mono
 
         private void Update()
         {
-            if (_gameState.PlayerState.IsInBattle)
-            {
-                _gameState.BattleCardState.Reset();
-                
-            }
+
         }
     }
 }
