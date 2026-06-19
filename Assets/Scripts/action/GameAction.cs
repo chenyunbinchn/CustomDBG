@@ -1,4 +1,5 @@
-﻿using enums;
+﻿using System.Collections;
+using enums;
 
 namespace action
 {
@@ -9,9 +10,10 @@ namespace action
 
         public virtual GameAction Create()
         {
-            ActionId id = new ActionId();
-            
+            ActionId id = new ActionId(); // Todo: Manage Id generation.
+            ActionStatus = EnumActionStatus.WaitingForExecution;
+            return this;
         }
-        public abstract void Execute();
+        public abstract IEnumerator Execute(); // Todo: Check if action should not have execute function, ActionExecutor handle every execute?
     }
 }

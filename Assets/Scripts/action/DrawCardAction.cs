@@ -3,7 +3,7 @@ using enums;
 
 namespace action
 {
-    public class DamageAction : GameAction
+    public class DrawCardAction : GameAction
     {
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
@@ -18,7 +18,7 @@ namespace action
 
         public override IEnumerator Execute()
         {
-            yield return null;
+            throw new System.NotImplementedException();
         }
     }
 }

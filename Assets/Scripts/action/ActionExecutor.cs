@@ -1,13 +1,11 @@
-﻿using System.Collections.Generic;
-
-namespace action
+﻿namespace action
 {
     public class ActionExecutor
     {
-        public void Execute(ActionQueue actionQueue)
+        public void Execute(GameActionManager gameActionManager)
         {
-            GameAction curAction = actionQueue.Pop();
-            
+            GameAction curAction = gameActionManager.Pop();
+            curAction.Execute();
         }
     }
 }

@@ -16,10 +16,12 @@ namespace gameStates.transient
         {
             MyAssert.Assert(enemies.Count != 0, "enemies.Count == 0");
             EnemyList = enemies;
+            PlayerEnergies = new int[playerEnergiesLimit.Length];
             for (int i = 0; i < PlayerEnergies.Length; i++)
             {
                 // Todo: Bad smell here? What if an item eat player's energy while battle begin? Hook?
-                PlayerEnergies[i] = playerEnergiesLimit[i]; 
+                int value = playerEnergiesLimit[i];
+                PlayerEnergies[i] = value;
             }
             PlayerEnergies = playerEnergiesLimit;
             TurnNum = 0;
