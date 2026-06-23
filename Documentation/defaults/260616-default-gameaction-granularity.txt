@@ -1,0 +1,92 @@
+========================================================================
+  失误记录：误判 STS2 GameAction 队列的粒度（效果级 vs 意图级）
+  发生日期：2026-06-16
+  涉及文件：Documentation/reports/260613-report-action-queue-and-executor.txt
+            Documentation/reports/260609-report-action-system.txt
+========================================================================
+
+1. 失误描述
+------------------------------------------------------------------------
+
+在讨论 ActionQueue 数据流时，多次以
+  "PlayCardAction 执行时 foreach effect 入队子 Action（DealDamageAction
+   / GainBlockAction），DealDamageAction 击杀时再入队 DeathAction"
+作为参考 STS2 的设计来描述，隐含假设：
+
+  STS2 的 GameAction 队列是【效果级】——卡牌效果被拆成一个个细粒度
+  GameAction 入队执行。
+
+阅读 STS2 真实源码后发现该假设不准确：
+
+  来源：src/Core/GameActions/ 目录
+    全部 GameAction 子类都是【玩家意图级】粗粒度命令：
+    PlayCardAction / UsePotionAction / EndPlayerTurnAction /
+    PickRelicAction / DiscardPotionGameAction / MoveToMapCoordAction /
+    VoteForMapCoordAction 等。
+    目录中【没有】DealDamageAction / DrawCardsAction / GainBlockAction
+    这类效果级 Action。
+
+  来源：src/Core/GameActions/PlayCardAction.cs:99
+    protected override async Task ExecuteAction() {
+        ...
+        await _card.OnPlayWrapper(PlayerChoiceContext, target, ...);
+    }
+    卡牌效果（伤害/格挡/抽牌）在 _card.OnPlayWrapper 内部展开，走的是
+    另一套 Command 系统（src/Core/Commands/ 下的 CardCmd / DamageCmd 等），
+    【不】回到 GameAction 队列。
+
+  即 STS2 实为两层：
+    - GameAction 队列层：玩家意图级，承担多人同步(ToNetAction)、回放
+      (RecordableToReplay)、暂停等玩家选择、确定性排序(Id)。
+    - Command / OnPlay 层：效果级，卡内同步/异步展开，不入 GameAction 队列。
+  "效果级 action 入队"是 STS1 GameActionManager 的风格，STS2 已重构掉。
+
+------------------------------------------------------------------------
+
+2. 根因分析
+------------------------------------------------------------------------
+
+a) 先入为主套用 STS1 心智模型
+   STS1 的 GameActionManager 确实是效果级 action 队列（AddToTop/AddToBottom
+   插入 DamageAction 等）。在未读 STS2 GameAction 子类目录前，默认 STS2
+   沿用同一粒度。
+
+b) 用"假想的 CustomDBG 数据流"反向假设了 STS2
+   报告里画 CustomDBG 数据流时用了 DealDamageAction 作为队列元素，并标注
+   "参考 STS2"，把一个尚未验证的设计选择当成了 STS2 的既成事实。
+
+c) 验证滞后
+   先写了数据流结论，后才读 PlayCardAction 源码。应在引用"STS2 这样做"
+   前先打开对应子类确认。
+
+------------------------------------------------------------------------
+
+3. 修正措施
+------------------------------------------------------------------------
+
+a) 本失误记录明确 STS2 GameAction = 意图级、效果走 Command/OnPlay。
+
+b) 待与开发者确认后，更新两篇报告：
+   - 260613-report-action-queue-and-executor：在数据流节注明"队列粒度
+     是一个独立设计选择"，并补充 STS2 意图级 vs STS1 效果级的对比；
+     CustomDBG 可选其一，不应默认 STS2 是效果级。
+   - 260609-report-action-system：第 5 节数据流示例标注其为"CustomDBG
+     候选设计（效果级队列）"，而非 STS2 现状。
+
+c) 粒度本身成为一个待决策点：CustomDBG 的 GameAction 队列该是意图级
+   （像 STS2，效果另走 Command）还是效果级（像 STS1，效果即队列元素）？
+   值得单开一篇报告对比。
+
+------------------------------------------------------------------------
+
+4. 经验总结
+------------------------------------------------------------------------
+
+引用"参考实现 X 这样做"前，必须先打开 X 的对应源码确认，尤其当：
+  - X 有多个版本（STS1 vs STS2），版本间可能重构了同一机制；
+  - 结论是从"我设想的本项目设计"反推得来，而非从 X 源码读出。
+
+区分"这是参考实现的事实"与"这是本项目的候选设计"——报告里二者必须
+用措辞分清，不可把后者伪装成前者。
+
+========================================================================

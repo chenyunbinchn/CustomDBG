@@ -1,0 +1,231 @@
+========================================================================
+  报告：战斗单位（玩家/敌人）战斗态的建模方案
+  生成日期：2026-06-12
+========================================================================
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+战斗中玩家和敌人都需要 Hp / MaxHp / Block / 状态(Status) 这组"战斗态"，
+以及作用其上的伤害/格挡/状态结算逻辑。核心问题是：
+
+  这组数据与逻辑，玩家和敌人该【各写一套】，还是【共用一套】？怎么共用？
+
+这直接决定后续 DamageSystem / TargetResolver / StatusSystem / UI 绑定
+是否要到处 if(faction==Player) 分支。本报告穷举所有可行方案并对比。
+
+相关讨论：动作/效果的执行体也面临类似的"继承/接口/委托/数据"模式选择，
+见《260609-report-action-system》（那是 Action 的执行体，本报告是战斗
+单位的状态，两者不同主题，勿混）。压缩式编程与"过早抽象"的取舍贯穿
+本报告的判断。
+
+------------------------------------------------------------------------
+
+2. 代码分析
+------------------------------------------------------------------------
+
+2.1 本项目现状（分离、且不对称）
+
+  来源：Assets/Scripts/enemy/instance/EnemyInstance.cs
+        public class EnemyInstance { public int Hp; }   // 仅 Hp，过薄
+  来源：Assets/Scripts/gameStates/transient/BattleState.cs
+        public List<EnemyInstance> EnemyList;
+        public int[] PlayerEnergies;                      // 玩家只有能量
+  来源：Assets/Scripts/gameStates/PlayerState.cs
+        public int[] Hps;                                 // 持久态，非战斗态
+
+  问题：敌人有 EnemyInstance（战斗态雏形），玩家在战斗里没有对应的
+  Hp/Block/Status 模型——不对称。任何"对玩家和敌人都生效"的逻辑
+  （扣血、格挡、Weak/Vulnerable）此刻无处统一落脚。
+
+  来源：Assets/Scripts/enums/EnumTargetType.cs
+        Self / SelectedEnemy / AllEnemy / RandomEnemy / ...
+  目标可同时指向玩家(Self)和敌人——这是"是否需要统一类型"的根因。
+
+2.2 STS2 的做法（共享类型 + 组合，不按 faction 分支）
+
+  来源：D:\Decompiled Projects\Slay the Spire 2\src\Core\Entities\
+        Creatures\Creature.cs
+    public class Creature {
+        private int _block; private int _currentHp; private int _maxHp;
+        private readonly List<PowerModel> _powers;       // 状态/能力
+        public decimal DamageBlockInternal(...);          // 扣血扣格挡——只一份
+        public void GainBlockInternal(...); public void LoseBlockInternal(...);
+    }
+
+  来源：Entities\Players\Player.cs
+    public class Player {                  // 注意：没有 : Creature
+        public Creature Creature { get; }  // 【组合】持有一个 Creature
+        // Creature = new Creature(this, currentHp, maxHp);
+    }
+  Monster 同样暴露 .Creature（Commands\Builders\AttackCommand.cs:170
+    Attacker = monster.Creature;）。
+
+  来源：Commands\CardCmd.cs:69
+    IEnumerable<Creature> items = combatState.Allies
+        .Where(c => c.IsAlive && c.IsPlayer && ...);
+  玩家与怪物装在同一个 IEnumerable<Creature> 里；c.IsPlayer 这个 faction
+  标志【只用于过滤目标】，不用于分支扣血算数。扣血逻辑写在 Creature
+  内部，只有一份。
+
+  结论性观察：STS2 既不按 faction 分支，也不写两套数据——它用一个共享
+  的 Creature 类型，通过【组合】塞进 Player 和 Monster。这是"共享数据"
+  而非"共享继承"。
+
+------------------------------------------------------------------------
+
+3. 全部可行方案（6 种主方案）
+------------------------------------------------------------------------
+
+先厘清设计空间的两条正交轴：
+  轴 A 数据布局：①各自分离 ②共享类型(组合进壳) ③共享类型(直接当单位)
+                ④分离但共享接口 ⑤列式 SoA
+  轴 B 逻辑位置：自由函数 / 类型上的方法 / 虚函数(多态) / 接口分派
+方案即这两轴的有意义组合，列举如下。
+
+────────────────────────────────────────────────────────────────────
+方案 1：完全分离（两套数据 + 两套逻辑）
+────────────────────────────────────────────────────────────────────
+原理：PlayerBattleState 与 EnemyInstance 各自声明 Hp/Block/Status；
+      DealDamageToPlayer / DealDamageToEnemy 各写一份。
+代码：
+    class PlayerBattleState { int Hp; int Block; List<StatusInstance> S; }
+    class EnemyInstance     { int Hp; int Block; List<StatusInstance> S; }
+    void DealDamageToPlayer(...); void DealDamageToEnemy(...);
+优点：
+  - 最简单直接，零抽象，符合"先不抽象"。
+  - 玩家/敌人可各自独立演化，互不牵连。
+  - 改动便宜（早期 call site 少）。
+缺点：
+  - 持不住"一个战斗单位"的统一引用：处理"目标"时只能传 (faction,index)，
+    每个读写 Hp/Block 的地点都要重新分支或走访问器。
+  - DealDamage 的算数完全相同却被迫抄两遍，易分叉。
+  - TargetResolver 无法返回单一类型；AOE 时玩家和敌人装不进同一个 List。
+适用：玩家/敌人战斗逻辑差异确实很大、跨阵营对称代码很少的小游戏。
+
+────────────────────────────────────────────────────────────────────
+方案 2：共享数据类型 + 组合 + 自由函数（STS2 精简版）
+────────────────────────────────────────────────────────────────────
+原理：抽一个纯数据 CombatActorState{Hp,MaxHp,Block,Statuses}，由
+      EnemyInstance 和 PlayerBattleState 各【组合】一个；伤害是自由函数，
+      只认 CombatActorState；faction 仅用于选目标/过滤。
+代码：
+    class CombatActorState { int Hp; int MaxHp; int Block; List<StatusInstance> S; }
+    class EnemyInstance     { CombatActorState Combat; EnumEnemyType Type; }
+    class PlayerBattleState { CombatActorState Combat; /* 能量等 */ }
+    static void DealDamage(CombatActorState t, int dmg){ int a=Min(t.Block,dmg);
+        t.Block-=a; t.Hp-=(dmg-a); }
+优点：
+  - 不分支：所有碰目标的系统(效果/目标/状态/UI)接同一种类型。
+  - 非继承、非虚函数——避开了过早抽象的真正风险。
+  - 与 STS2 同构，被证明可用；通过"是否被一视同仁使用"的检验。
+缺点：
+  - 比方案 1 多一个类型/一层组合；若跨阵营对称很少，则是多余中间层。
+  - 玩家专属(能量)、敌人专属(意图)放在各自外层壳里（本就该如此）。
+适用：DBG 这类卡牌效果/状态大量对玩家敌人通用的游戏（推荐默认）。
+
+────────────────────────────────────────────────────────────────────
+方案 3：共享数据类型 + 继承（基类 Creature）
+────────────────────────────────────────────────────────────────────
+原理：abstract class Creature 持有 Hp/Block + 逻辑；Player:Creature、
+      Monster:Creature 继承，必要时 override。
+优点：
+  - 也能消除分支；可用虚函数表达玩家/敌人差异。
+缺点：
+  - 继承+多态正是"过早抽象"的高危区：基类易膨胀成"上帝类"，玩家敌人
+    的差异塞进虚函数后耦合、难拆。
+  - STS2 明确【没有】用继承（Player 不 : Creature），而用组合。
+适用：差异以"同名行为不同实现"为主、且层级稳定时——本项目不推荐。
+
+────────────────────────────────────────────────────────────────────
+方案 4：接口契约（ICombatActor）
+────────────────────────────────────────────────────────────────────
+原理：数据仍分离，但定义接口 interface ICombatActor{ int Hp; int Block;
+      List<StatusInstance> Statuses; }，Player/EnemyInstance 各自实现；
+      逻辑 DealDamage(ICombatActor t) 吃接口。
+优点：
+  - 消除分支（多态分派），又不强制共享同一个数据实例。
+  - 玩家/敌人保留各自的字段存储自由。
+缺点：
+  - 接口属性的 get/set 仍要在两个实现里各写一遍（样板）；装箱/虚分派
+    有微小开销。
+  - 本质上把"统一访问"换成接口而非共享数据，复杂度未必比方案 2 低。
+适用：两边底层存储差异大、但想统一访问契约时。
+
+────────────────────────────────────────────────────────────────────
+方案 5：完全统一单类型（一个 CombatActorState 直接当玩家和敌人）
+────────────────────────────────────────────────────────────────────
+原理：不要 EnemyInstance / PlayerBattleState 两个壳，整场战斗只有一种
+      CombatActorState{Id,Faction,Hp,MaxHp,Block,Statuses}；玩家专属
+      (能量)、敌人专属(意图)用可空字段或旁路表挂。所有单位放一个
+      List<CombatActorState>。
+优点：
+  - 最彻底地无分支；目标解析/AOE 极简（统一 List 迭代）。
+缺点：
+  - 玩家/敌人专属数据塞进同一类型 → 出现"玩家用不到 Intent、敌人用不到
+    Energy"的空字段，或被迫旁路表，反而别扭。
+  - 列表混装时要靠 Faction 过滤（但只过滤，不分支逻辑）。
+适用：玩家与敌人差异极小、几乎对称的设计。
+
+────────────────────────────────────────────────────────────────────
+方案 6：ECS / SoA 列式数据（数据导向）
+────────────────────────────────────────────────────────────────────
+原理：不按"对象"存，按"列"存：Hp[]、Block[]、Statuses[]、Faction[]
+      并行数组，用 actorId 作下标；系统遍历数组批处理。faction 只是
+      又一列。
+代码：
+    int[] Hp; int[] Block; EnumFaction[] Faction; // 以 actorId 索引
+    void DealDamage(int actorId, int dmg){ int a=Min(Block[actorId],dmg);
+        Block[actorId]-=a; Hp[actorId]-=(dmg-a); }
+优点：
+  - 同样无分支；缓存友好、批处理快；天然契合 kcg-game 的 DOD 风格；
+    极易序列化（利于回放，见《...replay-recording-granularity》）。
+缺点：
+  - 对小规模战斗(几个单位)的性能收益可忽略，却带来"按列思维"的认知成本。
+  - 增删单位、id 复用、并行数组同步要小心。
+适用：单位数量大、追求极致数据局部性、或全面 DOD 架构时；DBG 战斗
+      规模小，收益有限。
+
+正交变体（轴 B，可叠加在方案 2/5/6 上）：
+  伤害逻辑放【自由函数】(本报告示例) vs 放【类型上的方法】
+  (t.TakeDamage(dmg)) vs 【虚函数】(方案 3)。前两者只是逻辑归属差异，
+  不改变数据布局；本项目"系统做逻辑、状态存数据"的取向偏向自由函数。
+
+------------------------------------------------------------------------
+
+4. 方案对比总览
+------------------------------------------------------------------------
+
+  方案            | 消除分支 | 抽象风险 | 复杂度 | 序列化 | 与STS2 | 推荐度(DBG)
+  ----------------|----------|----------|--------|--------|--------|-----------
+  1 完全分离      | 否       | 无       | 低     | 好     | 不同   | 差异大才选
+  2 组合+自由函数 | 是       | 低(组合) | 中     | 好     | 一致   | 默认推荐
+  3 继承基类      | 是       | 高(继承) | 中     | 中     | 相悖   | 不推荐
+  4 接口契约      | 是       | 中       | 中     | 中     | 不同   | 存储差异大时
+  5 完全统一单类型| 是       | 低       | 低     | 好     | 近似   | 高度对称才选
+  6 ECS/SoA       | 是       | 低       | 中高   | 极好   | 不同   | 全面DOD才选
+
+------------------------------------------------------------------------
+
+5. 结论
+------------------------------------------------------------------------
+
+共 6 种主方案。围绕本项目的两个判据收敛：
+
+  判据一（避免 faction 分支）：方案 1 做不到（其分支正是"两套数据"
+    逼出来的）；方案 2/3/4/5/6 都能做到。
+  判据二（避免过早/危险抽象）：方案 3(继承) 风险最高；方案 2(组合) 与
+    方案 5/6 风险低，因为是组合/数据布局而非多态层级。
+
+STS2 用真实代码给出的答案是【方案 2：共享 CombatActorState + 组合 +
+逻辑外置】。它既消除分支，又不碰继承，且其共享类型确实被战斗集合
+(IEnumerable<Creature>)一视同仁地使用——通过了"中间层是否真有用"的
+检验。对本项目推荐方案 2 的精简版（CombatActorState 只装
+Hp/MaxHp/Block/Statuses，组合进 EnemyInstance 与 PlayerBattleState，
+伤害写自由函数，faction 仅用于过滤目标）。
+
+若未来全面转向 kcg-game 式 DOD，可平滑改投方案 6（SoA）；若证明玩家/
+敌人对称到连壳都不需要，可简化为方案 5。方案 1 仅在"玩家敌人战斗逻辑
+差异确实很大、跨阵营对称代码很少"时才是更优解。
+
+========================================================================

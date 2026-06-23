@@ -1,0 +1,113 @@
+========================================================================
+  报告：随机源注入洗牌的策略对比
+  生成日期：2026-06-11
+========================================================================
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+洗牌函数必须从某处取得随机数。本项目的随机系统 RandomManager 故意把
+随机分成多条【独立的流】，因此"洗牌该接哪条流、怎么把流交给洗牌函数"
+不是小事——接错或写死会破坏确定性隔离，或堵死复用。本报告对比几种
+注入策略，并对照 STS2。
+
+（多流的"为什么"——确定性隔离——已在《...random-system-fundamentals》
+的 RngSet 部分讲过，本报告只谈"如何把流注入洗牌"。）
+
+------------------------------------------------------------------------
+
+2. 代码分析
+------------------------------------------------------------------------
+
+2.1 RandomManager 的多流设计
+
+  来源：Assets/Scripts/random/RandomManager.cs
+
+    private System.Random _shuffleRandom;
+    private System.Random _monsterAiRandom;
+    private System.Random _mapGenRandom;
+    private System.Random _itemRandom;
+    private System.Random _lootDropCardRandom;
+    // 各自带独立计数器，对外暴露 ShuffleNextInt / ItemNextInt / ... 等方法
+
+  每条流独立推进。意义：怪物 AI 消耗随机数不能移动洗牌流的序列，
+  否则回放发散。所以"洗牌用哪条流"是【领域绑定】的：卡牌洗牌必须永远
+  走 _shuffleRandom，物品必须永远走 _itemRandom。
+
+2.2 当前洗牌函数的形参
+
+  来源：Assets/Scripts/tools/shuffle/ShuffleHelper.cs
+    public static void Shuffle<T>(IList<T> list, Func<int,int> nextIntExclusive)
+
+  Func 把"用哪条流"留给调用方：
+    ShuffleHelper.Shuffle(drawPile,  randomManager.ShuffleNextInt); // 卡牌→shuffle流
+    ShuffleHelper.Shuffle(shopItems, randomManager.ItemNextInt);    // 物品→item流
+
+2.3 反面教材（曾出现的误用）
+
+  ShuffleHelper.Shuffle(cards, RandomManager.ShuffleNextInt(10));   // 错
+
+  ShuffleNextInt(10) 是【立刻调用】，返回一个 int，不能转成 Func<int,int>，
+  编译错误。正确是传【方法组】RandomManager.ShuffleNextInt（无括号），
+  由洗牌函数在循环里按 i+1 反复调用。详见《...func-delegate-and-method-
+  group》。这恰好说明 Func 的本质：传"函数"而非"返回值"。
+
+2.4 STS2 的做法（来自原 R12，注入部分）
+
+  来源：D:\Decompiled Projects\Slay the Spire 2\src\Core\...
+  STS2 不传 Func，而是传【整个 Rng 对象】，且它把每条流做成一个 Rng 实例：
+
+    // 形态一：扩展方法吃 Rng（Extensions\ListExtensions.cs）
+    list.UnstableShuffle(rng);           // rng 即某条流对象
+    list.StableShuffle(player.RunState.Rng.Shuffle);  // .Shuffle 是"洗牌流"对象
+
+    // 形态二：方法直接挂在 Rng 上（Random\Rng.cs）
+    public void Shuffle<T>(IList<T> list) { /* 用自己的 NextInt */ }
+
+  STS2 选了"传具体流对象 + 方便"，而非 Func 的泛型纯洁；因为 Rng 自带
+  确定性 Counter，传整个对象既正确推进计数器，又能用 NextInt 的各种重载。
+
+------------------------------------------------------------------------
+
+3. 方案对比
+------------------------------------------------------------------------
+
+方案 A：Func<int,int> 注入（已采用）
+  做法：洗牌收 Func<int,int>，调用方传 randomManager.XxxNextInt 方法组。
+  优点：跨流（传不同的 NextInt）、跨类型（泛型 T）通用；洗牌层不依赖
+        random，保持叶子；"选流"决定留在每个调用点。
+  缺点：调用点要多传一个参数；调用者可能误用（传成调用结果）。
+
+方案 B：传整个 RandomManager，内部写死某条流
+  做法：Shuffle(list, RandomManager rm){ ... rm.ShuffleNextInt ... }
+  优点：调用最简洁。
+  缺点：流被写死，无法给物品/地图换流；洗牌层反向依赖 random，且
+        若放 tools 会成环；通用性最差。
+
+方案 C：传具体的"流对象"（STS2 风格）
+  做法：把 RandomManager 重构成每条流一个独立对象（各自带 NextInt+
+        计数器），洗牌收那个流对象：Shuffle(list, shuffleStream)。
+  优点：具名、计数器封装整齐；比 Func 多了流的各种重载能力；可跨流。
+  缺点：要动 RandomManager 的结构（当前是"一个对象+多方法"，非"多对象"）。
+
+方案 D：扩展方法（语法糖，可叠加在 A 或 C 上）
+  做法：drawPile.Shuffle(randomManager.ShuffleNextInt) 这种 this 形式。
+  优点：调用更顺。
+  缺点：仅语法层面，不改变依赖本质；项目当前 Api/Helper 风格用静态调用。
+
+------------------------------------------------------------------------
+
+4. 结论
+------------------------------------------------------------------------
+
+采用方案 A（Func<int,int> 注入）：在不改 RandomManager、不让洗牌层
+依赖 random 的前提下，既能跨流又能跨类型，是当前结构下最干净的选择。
+
+演进路径：若日后 RandomManager 重构为"每条流一个对象"，可平滑转到
+方案 C（传流对象），获得更具名的调用与更整齐的计数器封装。
+
+使用纪律：调用时务必传【方法组】而非调用结果——
+  对：ShuffleHelper.Shuffle(drawPile, randomManager.ShuffleNextInt)
+  错：ShuffleHelper.Shuffle(drawPile, randomManager.ShuffleNextInt(10))
+
+========================================================================

@@ -1,0 +1,108 @@
+========================================================================
+  报告：洗牌函数（ShuffleHelper）的落点与分层
+  生成日期：2026-06-11
+========================================================================
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+实现 Fisher-Yates 洗牌函数时，"算法怎么写"是次要的，"它该放在哪个
+命名空间/哪一层、依赖谁"才是真正影响架构健康的决定。本报告记录该
+决策过程：候选落点、依赖方向、循环依赖风险，以及通过拆分命名空间
+解环的思路，并对照 STS2 的分层。
+
+------------------------------------------------------------------------
+
+2. 代码分析
+------------------------------------------------------------------------
+
+2.1 项目当前的内部依赖方向
+
+    tools        → （无内部依赖）              ← 叶子层
+    random       → tools                        （RandomManager 用 MyAssert）
+    gameStates   → cards.instance
+    systems      → （待定）
+
+  来源：Assets/Scripts/random/RandomManager.cs 第 1 行 `using tools;`
+  关键事实：random 已经依赖 tools。这一条边决定了后续解环分析。
+
+2.2 候选落点产生的依赖边
+
+  - 放 tools 且内部直接用 RandomManager：
+        新增 tools → random，而已有 random → tools  ⇒ 循环
+  - 放 random：random → tools（已存在），无新环
+  - 放 cards.api：cards.api → random + cards.instance，无环，但卡牌专用
+
+2.3 当前落地状态
+
+  来源：Assets/Scripts/tools/shuffle/ShuffleHelper.cs
+        namespace tools.shuffle; using tools.assert;
+        public static void Shuffle<T>(IList<T> list, Func<int,int> nextIntExclusive)
+
+  即：放在 tools 下（细分到 tools.shuffle），MyAssert 已被拆到 tools.assert，
+  随机源通过 Func 注入，tools 层不依赖 random。
+
+2.4 STS2 的分层对照（来自原 R12，分层部分）
+
+  来源：D:\Decompiled Projects\Slay the Spire 2\src\Core\...
+    Core.Helpers  (StringHelper 等)                      ← 叶子
+        ↑
+    Core.Random   (Rng，用 StringHelper 派生种子)
+        ↑
+    Core.Extensions (ListExtensions：UnstableShuffle/StableShuffle)
+
+  STS2 的"工具扩展层"Core.Extensions 是【依赖】Core.Random 的——它的
+  洗牌扩展直接吃 Rng。它之所以不成环，是因为 Rng 自己需要的低层件
+  （StringHelper）被放在【另一个】命名空间 Core.Helpers，而不是
+  Extensions 里。这与本项目"把 MyAssert 拆到 tools.assert、洗牌放
+  tools.shuffle"在结构上同构：
+
+    本项目： tools.assert  ←  random  ←  tools.shuffle
+    STS2  ： Core.Helpers  ←  Core.Random  ←  Core.Extensions
+
+  结论性观察：让"工具/扩展命名空间依赖 random"是出货级游戏的正常做法，
+  前提是把 random 自身依赖的低层件挪到独立命名空间。前几轮"拆 tools.assert
+  来解环"的直觉，与 STS2 一致。
+
+------------------------------------------------------------------------
+
+3. 方案对比
+------------------------------------------------------------------------
+
+方案 A：tools.shuffle + Func<int,int> 注入（已采用）
+  优点：tools 保持叶子（只依赖 System + 同层 MyAssert），泛型可被
+        卡牌/物品/地图复用，易单测；不依赖 random，无任何环。
+  缺点：调用点需多传一个 randomManager.ShuffleNextInt。
+
+方案 B：放 random 命名空间
+  优点：可直接用 RandomManager，调用点简洁（如 RandomManager.Shuffle）。
+  缺点：与 random 绑定，通用性差；语义上把"洗牌算法"塞进随机系统。
+
+方案 C：放 cards.api（卡牌门面）
+  优点：作为卡牌洗牌门面语义清晰，符合 DOD/Api 风格。
+  缺点：写死流与类型，无法复用到物品等非卡牌；若强行泛型又名不副实。
+
+补充——命名空间 vs 强制力：
+  以上"环"在本项目是【逻辑层面】的，单 Assembly 下编译器并不拦
+  （详见《260611-report-namespace-vs-assembly》）。拆 tools.assert/
+  tools.shuffle 只在 namespace 粒度把逻辑环理顺，是文档与自律；要真正
+  强制需上 asmdef（详见《260611-report-unity-assembly-and-asmdef-
+  organization》）。
+
+命名一致性提醒：
+  tools.* 前缀隐含"不向上依赖"。tools.shuffle 用 Func 注入正好维持了
+  这一承诺；若日后让它依赖 random，则应改名（如 extensions），别让
+  tools.* 一半是叶子一半不是——STS2 用 Helpers / Extensions 两个不同
+  的名字正是为此。
+
+------------------------------------------------------------------------
+
+4. 结论
+------------------------------------------------------------------------
+
+采用方案 A（tools.shuffle + Func 注入），理由：tools 保持叶子、洗牌
+保持泛型可复用、零环、可测试，装配（把哪条随机流接进来）交给上层
+调用点（systems）。随机源具体怎么注入的取舍，见
+《260611-report-random-source-injection-strategies》。
+
+========================================================================

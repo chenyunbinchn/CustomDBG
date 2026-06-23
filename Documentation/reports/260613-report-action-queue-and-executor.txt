@@ -1,0 +1,232 @@
+========================================================================
+  报告：Action 队列与执行器（Queue / Executor）设计
+  生成日期：2026-06-13
+========================================================================
+
+修订记录：
+  2026-06-13 初稿：基于 STS2 ActionExecutor / ActionQueueSet 真实代码，
+             梳理队列与执行器的职责分离、能力清单（六个设计维度）、
+             数据流与 CustomDBG 的 MVP 精简切分。
+
+------------------------------------------------------------------------
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+《260609-report-action-system》讨论了"队列里装什么"——即 Action 的
+表示形态（A 继承 / B 接口 / C 委托 / D 数据 / E 混合 / F SO）。本报告
+讨论正交的另一半："队列 / 执行器本身怎么设计"——存储结构、驱动方式、
+暂停、取消、排空信号。两报告互补，勿混。
+
+ActionQueue 的必要性已确立，不再论证（根因：因果级联 + 动画时序 +
+Action 自产 Action，同步执行三者都做不到）。本报告只讨论"怎么做"。
+
+------------------------------------------------------------------------
+
+2. 代码分析
+------------------------------------------------------------------------
+
+2.1 STS2 把它拆成两个类（职责分离）
+
+  来源：src/Core/GameActions/ActionExecutor.cs
+        src/Core/GameActions/Multiplayer/ActionQueueSet.cs
+
+  - ActionQueueSet（队列）：纯存储 + 状态——入队 / 出队 / 取消 / 排空
+    判定。不驱动执行。
+  - ActionExecutor（执行器）：驱动循环——取下一个 / 等暂停 / 跑 Execute
+    / 前后广播钩子 / 控制节拍。
+  分工：队列回答"该执行哪个、还有没有"，执行器回答"怎么跑完、何时跑
+  下一个"。二者不揉成一个类。
+
+  关键实现点（带行号）：
+
+  (a) 存储结构是 List，不是 Queue（ActionQueueSet.cs:17）
+        private class ActionQueue { public List<GameAction> actions; ... }
+      用 List 而非 Queue<T>：需遍历查找（resume 定位）、任意位置移除
+      （取消中段 Action）。Queue<T> 只能两端操作，做不到。
+
+  (b) 严格队首出队（PopAction :437）
+      入队是 actions.Add（尾部）；出队强制只能 pop actions[0]，非队首
+      pop 直接抛异常（"not the top-most action"）。执行顺序完全可预测。
+
+  (c) 单调递增 Id（GetAndIncrementActionId :498）
+      每个 Action 入队领一个递增 Id。用途：多队列时全局排序（GetReady
+      Action 取最小 Id，:185）、resume 定位、调试日志。
+
+  (d) 执行循环 + 逐个等待（ExecuteActions :101）
+      GetReadyAction → WaitForUnpause → BeforeActionExecuted 钩子 →
+      await Execute → AfterActionFinished 钩子 → 找下一个，直到 GetReady
+      Action 返回 null。当前 Action 未完成不取下一个（:130 逐帧 await
+      ProcessFrame）。
+
+  (e) 事件驱动启动，不每帧轮询（ActionQueueChanged :92）
+      队列一变化触发 if(!IsRunning) ExecuteActions()。空闲时执行器完全
+      不跑。
+
+  (f) 三层暂停
+      执行器级 _isPaused / Pause / WaitForUnpause（:62,205）：全局冻结。
+      队列级 isPaused + ActionType 门控（:171）：暂停某类 Action。
+      Action 级 GatheringPlayerChoice 状态 + PauseActionForPlayerChoice
+        / ResumeAfterGatheringPlayerChoice（:206）：等玩家选择，最核心。
+      还处理 resume 早于 pause 的竞态（_actionsWaitingForResumption :231）。
+
+  (g) 按类型取消
+      CombatEnded（:296）取消未执行的战斗 Action；回合结束取消玩家驱动
+      Action（:260）；选择时取消后续出牌（isCancellingPlayCardActions
+      :103）。只取消 WaitingForExecution，不动 Executing。
+
+  (h) 排空信号（IsEmpty / BecameEmpty :49,240）
+      用 TaskCompletionSource。队列排空 = 一波因果链结算完 = 通知上层
+      推进。每个 Action 后还 CheckWinCondition（ActionExecutor.cs:148）。
+
+  (i) Action 类型标签（GameActionType：NonCombat / Combat /
+      CombatPlayPhaseOnly / Any）
+      队列据此做粗粒度门控（:166,171），不需理解 Action 的具体语义。
+
+  (j) 全局钩子（ActionExecutor.cs:49-53）
+      BeforeActionExecuted / JustBeforeActionFinishedExecuting /
+      AfterActionExecuted 三个事件。遗物 / Power 订阅它们做"每个 Action
+      前后"的横切响应（与伤害修改器链是两类不同的 hook）。
+
+  设计纪律观察：STS2 队列里出现了 is PlayCardAction、is EndPlayerTurn
+  Action 这类对具体类型的判断（:103,143）——这是队列被业务语义轻微
+  污染（为取消逻辑妥协）。本项目起步应用 ActionType 枚举标签代替
+  is XxxAction，让队列对具体 Action 类型保持无知。
+
+2.2 本项目现状
+
+  来源：Assets/Scripts/systems/BattleSystem.cs
+    public void Update(BattleState battleState, BattleCardState cardState)
+    { ... DrawCard(); PlayCard(); ... }    // 注释自问"要不要每帧 update"
+  - 无队列、无执行器；PlayCard 抛 NotImplementedException。
+  - 注释里那圈 Hook（抽牌前后 / 出牌后 / 回合结束）正是要落到执行器的
+    Before/After 钩子，或专门的 Hook Action 上。
+  - "要不要每帧 Update"的疑问，由本报告 3.维度三回答：不要，事件驱动。
+
+------------------------------------------------------------------------
+
+3. 设计方案（按正交维度，各列选项与优缺点）
+------------------------------------------------------------------------
+
+维度一：队列与执行器是否分离
+  选项 1 合并成一个类。优：文件少、起步快。缺：存储与驱动耦合，暂停 /
+    取消逻辑和数据结构纠缠，长大后难拆。
+  选项 2 分离（STS2）。优：职责清晰、各自可测、契合本项目"系统做逻辑、
+    状态存数据"取向。缺：多一个类。
+  倾向：分离。即使单人，队列（数据）与执行器（逻辑）分开符合本项目取向。
+
+维度二：存储结构
+  选项 Queue<T>：语义最直白，但只能两端操作，无法遍历 / 任意移除 →
+    取消中段 Action 做不到。
+  选项 List<GameAction>（STS2）：队首出队、尾部入队，且支持遍历查找、
+    RemoveAt(i) 取消。
+  选项 LinkedList / Deque：两端 O(1) 插入，仅当要 AddToTop 才需要
+    （见维度五，当前不需要）。
+  倾向：List。
+
+维度三：驱动方式
+  选项 每帧 Update 轮询：简单，但空闲也跑、与"等待输入"语义不符（正是
+    BattleSystem 现状的疑问）。
+  选项 事件驱动 + Unity Coroutine：队列变化唤醒，跑到队空即停，空闲零
+    开销。
+  选项 async/await：STS2 用 Task；但《260609》结论建议 Unity 用 Coroutine
+    （IEnumerator + yield）避开 SynchronizationContext 复杂性。
+  倾向：事件驱动 + Coroutine。直接回答 BattleSystem 的"不必每帧 update"。
+
+维度四：暂停模型
+  选项 单层（仅一个 IsPaused）：简单，但表达不了"等玩家选择"这种
+    Action 级挂起。
+  选项 三层（执行器 / 队列 / Action，STS2）：完整但重。
+  倾向：MVP 只做 Action 级"等玩家选择"（选目标 / 弃牌跑不掉）；执行器级
+    全局暂停等暂停菜单再加；队列级可暂缓。
+
+维度五：插入语义
+  选项 纯 FIFO：尾部入队、队首出队。
+  选项 双端 AddToTop / AddToBottom（STS1）：子 Action 可插到当前之后。
+  分析：STS2 已放弃 AddToTop，改用尾部入队 + 严格 FIFO。因果紧凑性靠
+    "单人一次一张牌，打牌期间队列只装这条因果链"保证，无无关 Action
+    可割裂。
+  倾向：CustomDBG 单人 → 纯 FIFO 足够，不做 AddToTop。
+
+维度六：多队列
+  选项 单队列：单人足够。
+  选项 多队列 + Id 全局排序（STS2 ActionQueueSet）：多人 / 网络才需要。
+  倾向：单队列。Id 仅留作日志 / resume 定位，不做全局排序。
+
+------------------------------------------------------------------------
+
+4. 数据流
+------------------------------------------------------------------------
+
+4.1 一次出牌的控制权流转（状态机 ↔ 执行器 ↔ 队列）
+
+  玩家点牌 + 选目标（输入事件）
+    → [BattlePhase] PlayerAwaitInput 收输入 → Resolving
+    → BattleSystem 入队 PlayCardAction（队列变化事件唤醒执行器）
+    → [执行器] 循环：
+         GetReadyAction → BeforeAction 钩子 → await PlayCardAction.Execute：
+           扣能量（写 BattleState.PlayerEnergies）
+           await 出牌动画
+           读卡 CardEffect[]（战斗副本 = 基础值）
+           foreach effect → 入队子 Action（尾部）
+           卡进弃牌堆（写 BattleCardState）
+         → AfterAction 钩子 → GetReadyAction 取子 Action：
+           DealDamageAction.Execute：
+             过修改器链（力量 / 易伤）→ 最终伤害
+             写 CombatActorState.Block / Hp
+             await 受击动画
+             若 Hp<=0 入队 DeathAction
+         → ... 直到 GetReadyAction == null
+    → [队列] 排空 → BecameEmpty 信号
+    → [BattlePhase] Resolving → PlayerAwaitInput（可继续出牌）或 EnemyTurn
+
+  三条主干：
+    - 执行器 / 队列管"微观执行"：一次输入引发的因果链逐步、带动画落到
+      状态上；队列排空 = 这波结束。
+    - 状态机管"宏观阶段"：排空信号触发它推进（回合切换 / 胜负判定）。
+    - 所有对 CombatActorState / BattleCardState / PlayerEnergies 的写都
+      发生在 Action.Execute() 内 → 单一写入路径，与
+      《260612-report-combat-actor-state-modeling》《260613-report-card-
+      value-mutation-in-battle》接续（伤害 Action 读的"基础值"即战斗副本
+      的 CardEffect.Value，再过修改器链，见《260609-report-modifier-chain》）。
+
+4.2 "等玩家选择"的数据流（Action 级暂停）
+
+  DiscardChooseAction.Execute 执行到需要玩家选择
+    → 置 GatheringPlayerChoice，弹 UI
+    → 执行器 GetReadyAction 跳过它，队列停住
+    → 玩家选完，UI 回调 Resume
+    → Action 继续 → 完成出队
+  整段期间无 Action 推进，但执行器循环未销毁，等待唤醒。这正是"队列
+  吸收状态机职责"的机制（见《260609-report-action-system》关于状态机
+  非必须的讨论上下文）。
+
+------------------------------------------------------------------------
+
+5. 结论
+------------------------------------------------------------------------
+
+ActionQueue 实为"队列（存储）+ 执行器（驱动）"两件事，STS2 已分两类。
+对 CustomDBG 推荐的精简组合：
+  - 分离的 Queue + Executor；
+  - 存储用 List<GameAction>，尾部入队、严格队首出队；
+  - 事件驱动 + Unity Coroutine，不每帧轮询（回答 BattleSystem 的自问）；
+  - 暂停先只做 Action 级"等玩家选择"；
+  - 纯 FIFO，不做 AddToTop（单人一次一张牌天然够）；
+  - 单队列，Id 仅作日志 / 定位。
+
+MVP 必备：List + FIFO、协程执行循环、Action 级暂停、排空信号。
+可缓做：多队列、Id 全局排序、三层暂停、分类取消、AddToTop。
+
+设计纪律：队列【语义无关】——用 ActionType 枚举标签做门控，不在队列里
+写 is PlayCardAction 之类具体类型判断（STS2 为取消做了此妥协，本项目
+起步应避免）。
+
+归属与牵连：Queue + Executor 作为 BattleSystem 的运行时设施；协程 / Task
+不可序列化，若要回放须走 input-level 粒度（见《260610-report-replay-
+recording-granularity》）。
+
+Action 的表示形态（队列里装什么）见《260609-report-action-system》
+（尤其新增的第 5 节数据流对比）。
+
+========================================================================
