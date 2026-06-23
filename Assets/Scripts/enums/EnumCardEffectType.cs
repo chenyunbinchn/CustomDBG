@@ -9,6 +9,6 @@
         DrawCards,
         GainBlock,
         ApplyStatus,
-        ExhaustSelf,
+        Exhaust,
     }
 }

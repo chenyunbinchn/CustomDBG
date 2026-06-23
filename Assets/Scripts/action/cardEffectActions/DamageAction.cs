@@ -2,21 +2,21 @@
 using enums;
 using UnityEngine;
 
-namespace action
+namespace action.cardEffectActions
 {
-    public class DamageAction : GameAction
+    public sealed class DamageAction : GameAction
     {
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
         public int Value;
-
-        public GameAction Create(int dmgValue)
+        
+        public DamageAction(int value, ActionId id, EnumActionStatus actionStatus)
         {
-            base.Create();
-            Value = dmgValue;
-            return this;
+            Value = value;
+            Id = id;
+            ActionStatus = actionStatus;
         }
-
+        
         public override IEnumerator Execute()
         {
             Debug.Log($"[DamageAction] Start, Value = {Value}");

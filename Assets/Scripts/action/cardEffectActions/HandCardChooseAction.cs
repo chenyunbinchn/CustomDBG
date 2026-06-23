@@ -2,10 +2,17 @@
 using enums;
 using UnityEngine;
 
-namespace action
+namespace action.cardEffectActions
 {
-    public class HandCardChooseAction : GameAction
+    public sealed class HandCardChooseAction : GameAction
     {
+        public HandCardChooseAction(int cardIndex, ActionId id, EnumActionStatus actionStatus)
+        {
+            CardIndex = cardIndex;
+            Id = id;
+            ActionStatus = actionStatus;
+        }
+
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
         public int CardIndex = -1;
@@ -13,14 +20,6 @@ namespace action
         public void OnPlayerChose(int cardIndex)
         {
             CardIndex = cardIndex;
-        }
-        
-        public virtual GameAction Create(int chosenCardIndex)
-        {
-            ActionId id = new ActionId(); // Todo: Manage Id generation.
-            ActionStatus = EnumActionStatus.WaitingForExecution;
-            CardIndex = chosenCardIndex;
-            return this;
         }
         
         public override IEnumerator Execute()

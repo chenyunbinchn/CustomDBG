@@ -1,21 +1,12 @@
 ﻿using System.Collections;
 using enums;
 
-namespace action
+namespace action.cardEffectActions
 {
-    public class DrawCardAction : GameAction
+    public sealed class ApplyStatusAction : GameAction
     {
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
-        public int Value;
-
-        public GameAction Create(int dmgValue)
-        {
-            base.Create();
-            Value = dmgValue;
-            return this;
-        }
-
         public override IEnumerator Execute()
         {
             throw new System.NotImplementedException();
