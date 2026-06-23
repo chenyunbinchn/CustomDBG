@@ -8,7 +8,10 @@ namespace action
     {
         public List<GameAction> ActionQueue = new List<GameAction>();
         private uint _index = 0;
-        
+
+        // Todo: Multiplayer — single shared ActionQueue (deterministic global order, replay-safe) vs per-player
+        //       GameActionManager? If a single shared queue is enough, NextId staying here is fine; otherwise the
+        //       Id ownership must be reconsidered. Decide before adding multiplayer.
         public ActionId NextId()
         {
             return new ActionId(_index++);

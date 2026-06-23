@@ -1,0 +1,209 @@
+========================================================================
+  任务：补全 BattleSystem 的 CardEffect→Action 翻译 + 规范化 cardEffectActions
+  生成日期：2026-06-23
+  状态：done（已实现，待 Unity Editor 重编译确认零报错）
+========================================================================
+
+修订记录：
+  2026-06-23 初稿：记录本次「修复 TranslateEffect 编译错误 + 完整覆盖 8 个
+             EffectType + 规范化 8 个 cardEffectActions 构造函数 + 把
+             Execute 改为 Execute(BattleContext) 并新增 BattleContext」
+             的任务背景、锁定的设计决策、逐文件改动、计划外必要修复、
+             范围外遗留与验证方式。
+
+------------------------------------------------------------------------
+
+1. 背景与目标
+------------------------------------------------------------------------
+
+  本任务围绕「出牌 → 把 CardEffect[] 翻译成 GameAction 入队 → ActionExecutor
+  逐条执行 → 打日志」这条链路，把它从【编译不过的半成品】推进到【能编译、
+  能跑通的日志骨架】。关联设计见《260613-report-action-queue-and-executor》、
+  《260616-report-action-queue-granularity》、《260622-report-event-hook-system》。
+
+  动手前的现状（实代码为准）：
+
+  1.1 BattleSystem.TranslateEffect 编译不过
+    来源（任务前）：Assets/Scripts/systems/BattleSystem.cs
+      action = DamageAction(cardDefinition.Effects[i].);   // 缺 new、成员访问被截断、缺 break
+      switch 仅覆盖 DealDamage / CostEnergy / ApplyStatus 三个分支，
+      漏 GainEnergy / DrawCards / GainBlock / Exhaust / None；
+      // CLAUDE: Todo: Implement here. 即留给缺失分支的占位。
+
+  1.2 8 个 cardEffectActions 构造函数不一致且不完整
+    来源：Assets/Scripts/action/cardEffectActions/
+      DamageAction / DrawCardAction：(int value, ActionId id, EnumActionStatus status)（模板）
+      GainEnergyAction / GainBlockAction：仅 (ActionId id, EnumActionStatus status)，无法携带数值
+      CostEnergyAction：有 int Value 字段但无构造函数，get-only Id 永远是默认值 0
+      ApplyStatusAction：无字段无构造（施加状态需要 StatusType + 层数）
+
+  1.3 Execute 全部无参，action 拿不到要修改的可变战斗状态
+    来源（任务前）：Assets/Scripts/action/GameAction.cs:10
+      public abstract IEnumerator Execute();
+      // Todo: ... ActionExecutor handle every execute?
+    仅 DamageAction / HandCardChooseAction 有 Execute 实现，其余 throw NotImplementedException。
+
+------------------------------------------------------------------------
+
+2. 锁定的设计决策（来自本次问答）
+------------------------------------------------------------------------
+
+  决策 1【范围】：先修复 + 规范化；Execute 体保持 Debug.Log 桩，本轮不写
+    真实战斗结算逻辑（扣 Hp / 加格挡 / 抽牌 / 能量 / 状态 / 消耗）。
+
+  决策 2【状态访问方向】：Execute(BattleContext context) 传参。即便本轮
+    Execute 体不读 context，也先把抽象签名、executor 传递、所有重写点一次性
+    改到位，向前兼容（对应 GameAction.cs 的 Todo）。BattleContext 是 action
+    运行时触达可变战斗状态的唯一通道。
+
+  决策 3【ActionId / 初始状态约定】：每个 action 构造函数统一为
+    (<payload>, ActionId id, EnumActionStatus status)；TranslateEffect 用
+    actionManager.NextId() 取 Id、用 EnumActionStatus.WaitingForExecution 作
+    初始状态。这让原本的死代码 GameActionManager.NextId() 正式被调用。
+
+  决策 4【TryPlayCard 允许失败、不得崩溃】：出牌校验失败（不是玩家回合 /
+    执行器忙 / 能量不足 / 找不到卡）是【预期的运行时失败】，不能用 MyAssert，
+    一律 Debug.Log + return 让 UI 去提示。能量校验本轮只留 Todo 不实现。
+    注意区分：TranslateEffect 内对「已知 EffectType 翻译成 null」「未知
+    EffectType」用 MyAssert 保留——那是卡牌【数据错误】，属于该崩范畴。
+
+  决策 5【多人游戏的 ActionManager 归属（开放）】：本轮按单一 GameActionManager
+    实现，并在该类加 Todo 记录决策点。倾向：单一共享 ActionQueue 更好——动作
+    需按单一全局顺序逐条结算，多队列会让全局执行顺序产生歧义、破坏回放确定性
+    （见 CLAUDE.md 确定性随机/回放约束）。若将来确定要多队列，再回头改 NextId
+    的归属。
+
+------------------------------------------------------------------------
+
+3. 实现内容（逐文件，实代码为准）
+------------------------------------------------------------------------
+
+  3.1 新增 Assets/Scripts/gameStates/transient/BattleContext.cs
+    class BattleContext，两字段：
+      BattleState BattleState;
+      BattleCardPileState CardPileState;
+    最小 bundle，不放 PlayerIndex（多人时按需再加，本轮 YAGNI）。
+    命名空间 = 文件夹路径 gameStates.transient。
+    （新文件的 .meta 由 Unity 首次导入自动生成，未手建。）
+
+  3.2 Assets/Scripts/action/GameAction.cs:10
+    public abstract IEnumerator Execute(BattleContext context);
+    新增 using gameStates.transient;。
+
+  3.3 Assets/Scripts/action/ActionExecutor.cs
+    Kick(GameActionManager actionManager, BattleContext context)；
+    Run(GameActionManager actionManager, BattleContext context)；
+    执行处：yield return _host.StartCoroutine(action.Execute(context));
+    （Kick 的 if (IsRunning) return; 守卫已是正确写法，未动。）
+
+  3.4 9 个 Execute 重写点：改签名 + 桩体
+    Assets/Scripts/action/cardEffectActions/ 下 8 个 +
+    Assets/Scripts/action/DiscardHandCardAction.cs。
+    统一 public override IEnumerator Execute(BattleContext context)；
+    7 个的 throw new NotImplementedException() 换成 Debug.Log 桩 + yield return null；
+    DamageAction 保留原日志桩仅加形参；
+    HandCardChooseAction 保留 yield return new WaitUntil(() => CardIndex >= 0) 仅加形参。
+
+  3.5 规范化 8 个 action 的构造函数 / 字段（约定 (<payload>, ActionId id, EnumActionStatus status)）
+    CostEnergyAction：新增构造 (int value, ...)，修好 get-only Id 不被赋值。
+    GainEnergyAction：新增 int Value + (int value, ...)。
+    GainBlockAction：新增 int Value + (int value, ...)。
+    DrawCardAction：已是 (int value, ...)，不动 payload。
+    DamageAction：新增 EnumTargetType TargetType、EnemyInstance Target（可空），
+      构造 (int value, EnumTargetType targetType, EnemyInstance target, ActionId id, EnumActionStatus status)。
+    ApplyStatusAction：新增 EnumCardStatusType StatusType、int Value（=层数）、
+      EnumTargetType TargetType、EnemyInstance Target（可空），构造
+      (EnumCardStatusType statusType, int value, EnumTargetType targetType, EnemyInstance target, ActionId id, EnumActionStatus status)。
+    ExhaustCardAction：保留 int[] CardIndexArray（多选/选中的牌，按 hand 索引，
+      配合 HandCardChooseAction），新增 EnumTargetType TargetType，构造
+      (EnumTargetType targetType, int[] cardIndexArray, ActionId id, EnumActionStatus status)。
+      语义：TargetType==Self => 消耗打出的这张牌；其它 => 多选消耗（本轮只构造、不解析目标）。
+    HandCardChooseAction：(int cardIndex, ...) 不动 payload。
+
+  3.6 Assets/Scripts/action/GameActionManager.cs
+    在 NextId() 上方加 Todo，记录决策 5（多人 ActionManager vs 单一共享 ActionQueue）。
+
+  3.7 Assets/Scripts/systems/BattleSystem.cs
+    新增 using cards.effects;（TranslateEffect 用到 CardEffect）。
+    TranslateEffect(GameActionManager, CardInstance, EnemyInstance target)（:65）：
+      for 遍历 Definition.Effects，switch 完整覆盖 8 个 EffectType（:73-102），
+      每个分支用 effect 的 Value/StatusType/TargetType + actionManager.NextId() +
+      EnumActionStatus.WaitingForExecution 构造对应 action；
+      DealDamage / ApplyStatus 带 // Todo 多目标解析；Exhaust 带 // Todo 目标解析 +
+      System.Array.Empty<int>() 占位；default 分支 MyAssert.Assert(false, ...)；
+      switch 后 MyAssert.Assert(action != null, ...) 再 actionManager.Add(action)。
+    TryPlayCard(BattleContext context, GameActionManager, ActionExecutor, CardInstanceId, [CanBeNull] EnemyInstance)（:35）：
+      读 context.BattleState.IsPlayerTurn（顺带消化原「pass in isPlayerTurn ...
+      feel silly」自评）；三处失败（非玩家回合 / 执行器忙 / TryGetValue 找不到卡）
+      全走 Debug.Log + return，不用 MyAssert；保留能量校验 Todo；
+      末尾 TranslateEffect(...) 后 actionExecutor.Kick(actionManager, context)。
+
+------------------------------------------------------------------------
+
+4. 计划外的必要修复
+------------------------------------------------------------------------
+
+  Assets/Scripts/mono/UnityBoostrap.cs
+    原测试代码 new DamageAction().Create(6) 与 Kick(actionManager) 单参用的是
+    被本任务删除/改签名的旧 API，会编译报错。已移除这段标了
+    「// Todo: Remove test code」的测试代码、清掉 Update 里失效的 Kick 调用
+    与两个死 using（action、action.cardEffectActions）。这是为达成「零报错」
+    不得不动，未扩大到其它接线。
+
+------------------------------------------------------------------------
+
+5. 范围外（未处理，已知遗留）
+------------------------------------------------------------------------
+
+  - PlayerState.Init：DeckManagers = new CardDeckManager[playerNum] 只建数组、
+    元素未 new，DeckManagers[i].AddCardToDeck(...) 会 NPE（且第 23、27 行重复
+    new 同一数组）——会挡住真正端到端跑起来。
+  - CardPileManager.AddCard：创建 newCard 后未加进 Dictionary，且 _maxIndex++
+    可能与 CopyFromDeck 设定的现有最大 Id 撞号。
+  - UnityBoostrap.cs:16：局部变量 GameState _gameState 遮蔽字段，字段恒为 null
+    （现 Update 已空、暂不触发）。
+  - 各 action 的真实战斗结算逻辑——本轮是日志桩。
+  - BattleState 暂无 block / status 字段，GainBlock / ApplyStatus 即便将来填
+    逻辑也需先加存储。
+  - CardView / GameState 里实际构造 BattleContext 并调用 TryPlayCard 的 UI 接线
+    （CardView.cs:95 仍是注释 // cardPlaySystem.TryPlayCard(instanceId);）。
+
+------------------------------------------------------------------------
+
+6. 本轮新增的 Todo（代码内）
+------------------------------------------------------------------------
+
+  - BattleSystem.TranslateEffect：DealDamage / ApplyStatus 多目标（AllEnemy /
+    RandomEnemy / AllAllies）解析；Exhaust 目标解析（Self => 打出的牌；selected
+    => 经 HandCardChooseAction 多选）。
+  - BattleSystem.TryPlayCard：能量可负担性校验（汇总 CostEnergy 效果 vs
+    BattleState.PlayerEnergies），不足时优雅回 UI。
+  - GameActionManager.NextId 上方：多人 ActionManager vs 单一共享 ActionQueue。
+
+------------------------------------------------------------------------
+
+7. 验证
+------------------------------------------------------------------------
+
+  7.1 主验证（编译）：本项目无 CLI 构建（CLAUDE.md），在 Unity Editor
+      6000.4.9f1 打开工程触发重编译，确认 Console 零报错。改了抽象签名 +
+      9 个重写点，编译过即证明签名一致。这是本任务硬指标。
+
+  7.2 可选链路验证：临时在 UnityBoostrap 加测试钩子——手工构造一个 BattleContext
+      （塞入 BattleState(IsPlayerTurn=true) + BattleCardPileState，并向其
+      PileManager.Dictionary 放一张含多 CardEffect 的 CardInstance），new
+      GameActionManager 与 ActionExecutor(this)，调用
+      battleSystem.TryPlayCard(context, actionManager, executor, cardId, null)，
+      观察 Console 是否按 Effects 顺序打印各 [XxxAction] 日志、且 executor 跑完
+      后 IsRunning 归 false。注意：完整经由 PlayerState/GameState 的端到端运行
+      会先撞上第 5 节的 PlayerState.Init NPE，故链路验证用临时钩子绕开。
+
+------------------------------------------------------------------------
+
+8. 结论
+------------------------------------------------------------------------
+
+  「出牌 → 翻译 → 入队 → 执行 → 打日志」整条链路的编译错误已清除、8 个
+  EffectType 全覆盖、8 个 action 构造函数已规范化、Execute(BattleContext)
+  签名与 executor 传递已就位。本轮是日志骨架；真实结算逻辑、目标解析、能量
+  校验、UI 接线与遗留 bug 见第 5、6 节，留作后续任务。

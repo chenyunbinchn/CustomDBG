@@ -1,5 +1,7 @@
-﻿using System.Collections;
+using System.Collections;
 using enums;
+using gameStates.transient;
+using UnityEngine;
 
 namespace action.cardEffectActions
 {
@@ -9,9 +11,17 @@ namespace action.cardEffectActions
         public override EnumActionStatus ActionStatus { get; set; }
         public int Value;
 
-        public override IEnumerator Execute()
+        public CostEnergyAction(int value, ActionId id, EnumActionStatus actionStatus)
         {
-            throw new System.NotImplementedException();
+            Value = value;
+            Id = id;
+            ActionStatus = actionStatus;
+        }
+
+        public override IEnumerator Execute(BattleContext context)
+        {
+            Debug.Log($"[CostEnergyAction] Value = {Value}");
+            yield return null;
         }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using action;
 using action.cardEffectActions;
 using cards.definition;
+using cards.effects;
 using cards.instance;
 using enemy.instance;
 using enums;
@@ -31,44 +32,73 @@ namespace systems
             // Todo: Hook after player's turn over
         }
 
-        // Note: Pass in isPlayerTurn but check the bool value immediately makes me feel silly lol
-        public void TryPlayCard(bool isPlayerTurn, GameActionManager actionManager, CardPileManager pileManager, ActionExecutor actionExecutor, 
+        public void TryPlayCard(BattleContext context, GameActionManager actionManager, ActionExecutor actionExecutor,
             CardInstanceId cardId, [CanBeNull] EnemyInstance target)
         {
-            if (!isPlayerTurn)
+            // Note: TryPlayCard is ALLOWED to fail (wrong turn / executor busy / not enough energy / bad id).
+            //       It must NOT MyAssert/crash — just log and return so the UI layer can give feedback.
+            if (!context.BattleState.IsPlayerTurn)
             {
-                Debug.Log("Not player's turn!!");
-                return;
-            }
-            
-            if (actionExecutor.IsRunning)
-            {
-                Debug.Log("Action executor is running!!"); // Todo: Let UI layer handle defeat. Play defeat animation, and tell player cant do.
+                Debug.Log("Not player's turn!!"); // Todo: Let UI layer handle this — play feedback, tell player cant do.
                 return;
             }
 
-            pileManager.Dictionary.TryGetValue(cardId, out CardInstance cardInstance);
-            TranslateEffect(actionManager, cardInstance);
+            if (actionExecutor.IsRunning)
+            {
+                Debug.Log("Action executor is running!!"); // Todo: Let UI layer handle this.
+                return;
+            }
+
+            // Todo: Check energy affordability (sum CostEnergy effects vs BattleState.PlayerEnergies); fail gracefully to UI if not enough.
+
+            bool found = context.CardPileState.PileManager.Dictionary.TryGetValue(cardId, out CardInstance cardInstance);
+            if (!found)
+            {
+                Debug.Log($"CardInstance not found for id {cardId.Value}!!"); // Todo: UI feedback.
+                return;
+            }
+
+            TranslateEffect(actionManager, cardInstance, target);
+            actionExecutor.Kick(actionManager, context);
         }
-        
-        private void TranslateEffect(GameActionManager actionManager, CardInstance instance)
+
+        private void TranslateEffect(GameActionManager actionManager, CardInstance instance, [CanBeNull] EnemyInstance target)
         {
             CardDefinition cardDefinition = instance.Definition;
 
             for (int i = 0; i < cardDefinition.Effects.Length; i++)
             {
+                CardEffect effect = cardDefinition.Effects[i];
                 GameAction action = null;
-                switch (cardDefinition.Effects[i].EffectType)
+                switch (effect.EffectType)
                 {
-                    case EnumCardEffectType.DealDamage:
-                        action = DamageAction(cardDefinition.Effects[i].);
                     case EnumCardEffectType.CostEnergy:
-                        action = new CostEnergyAction();
+                        action = new CostEnergyAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
+                        break;
+                    case EnumCardEffectType.GainEnergy:
+                        action = new GainEnergyAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
+                        break;
+                    case EnumCardEffectType.DealDamage:
+                        // Todo: multi-target (AllEnemy/RandomEnemy) resolution; for now only the single selected `target` is captured.
+                        action = new DamageAction(effect.Value, effect.TargetType, target, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
+                        break;
+                    case EnumCardEffectType.DrawCards:
+                        action = new DrawCardAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
+                        break;
+                    case EnumCardEffectType.GainBlock:
+                        action = new GainBlockAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                         break;
                     case EnumCardEffectType.ApplyStatus:
-                        action = new ApplyStatusAction();
+                        // Todo: multi-target resolution; for now only the single selected `target` is captured.
+                        action = new ApplyStatusAction(effect.StatusType, effect.Value, effect.TargetType, target, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                         break;
-                    // CLAUDE: Todo: Implement here.
+                    case EnumCardEffectType.Exhaust:
+                        // Todo: resolve exhaust targets — Self => the played card (instance.Id); selected => via HandCardChooseAction multi-select.
+                        action = new ExhaustCardAction(effect.TargetType, System.Array.Empty<int>(), actionManager.NextId(), EnumActionStatus.WaitingForExecution);
+                        break;
+                    default:
+                        MyAssert.Assert(false, $"Unhandled EffectType: {effect.EffectType}");
+                        break;
                 }
                 MyAssert.Assert(action != null, "Effect can't be translated to action, null action detected!!");
                 actionManager.Add(action);

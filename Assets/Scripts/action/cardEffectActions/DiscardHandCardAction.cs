@@ -1,5 +1,7 @@
 ﻿using System.Collections;
 using enums;
+using gameStates.transient;
+using UnityEngine;
 
 namespace action
 {
@@ -7,9 +9,11 @@ namespace action
     {
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
-        public override IEnumerator Execute()
+
+        public override IEnumerator Execute(BattleContext context)
         {
-            throw new System.NotImplementedException();
+            Debug.Log($"[DiscardHandCardAction] Execute");
+            yield return null;
         }
     }
 }

@@ -1,21 +1,27 @@
-﻿using System.Collections;
+using System.Collections;
 using enums;
+using gameStates.transient;
+using UnityEngine;
 
 namespace action.cardEffectActions
 {
     public sealed class GainBlockAction : GameAction
     {
-        public GainBlockAction(ActionId id, EnumActionStatus actionStatus)
+        public override ActionId Id { get; }
+        public override EnumActionStatus ActionStatus { get; set; }
+        public int Value;
+
+        public GainBlockAction(int value, ActionId id, EnumActionStatus actionStatus)
         {
+            Value = value;
             Id = id;
             ActionStatus = actionStatus;
         }
 
-        public override ActionId Id { get; }
-        public override EnumActionStatus ActionStatus { get; set; }
-        public override IEnumerator Execute()
+        public override IEnumerator Execute(BattleContext context)
         {
-            throw new System.NotImplementedException();
+            Debug.Log($"[GainBlockAction] Value = {Value}");
+            yield return null;
         }
     }
 }

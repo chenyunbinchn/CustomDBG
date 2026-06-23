@@ -1,5 +1,7 @@
-﻿using System.Collections;
+using System.Collections;
 using enums;
+using gameStates.transient;
+using UnityEngine;
 
 namespace action.cardEffectActions
 {
@@ -8,7 +10,7 @@ namespace action.cardEffectActions
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
         public int Value;
-        
+
         public DrawCardAction(int value, ActionId id, EnumActionStatus actionStatus)
         {
             Value = value;
@@ -16,9 +18,10 @@ namespace action.cardEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute()
+        public override IEnumerator Execute(BattleContext context)
         {
-            throw new System.NotImplementedException();
+            Debug.Log($"[DrawCardAction] Value = {Value}");
+            yield return null;
         }
     }
 }
