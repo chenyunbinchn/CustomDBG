@@ -10,7 +10,7 @@ namespace action
 
         public virtual GameAction Create()
         {
-            ActionId id = new ActionId(); // Todo: Manage Id generation.
+            ActionId id = new ActionId(uint.MaxValue); // Todo: Manage Id generation.
             ActionStatus = EnumActionStatus.WaitingForExecution;
             return this;
         }

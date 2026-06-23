@@ -1,0 +1,153 @@
+========================================================================
+  报告：事件钩子系统（Event Hook）——触发点与反应机制
+  生成日期：2026-06-22
+========================================================================
+
+修订记录：
+  2026-06-22 初稿：基于当前 action / systems / gameStates 实代码，梳理
+             事件钩子的触发点放置（甲1/甲2/甲3）与反应机制（乙A/乙B/乙C），
+             与修改器链区分，推荐 甲1+甲3+乙C，并给最小验证例子与端到端
+             前置 bug。
+
+------------------------------------------------------------------------
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+  「钩子（Hook）」指在战斗生命周期节点（抽牌前后、出牌后、回合结束、
+  战斗开始）对外广播的触发点，供横切实体（遗物 / Power / 道具）订阅并
+  做出反应。本报告只讨论这种【事件钩子】，它与【修改器链】是两套不同
+  机制（见 2.4），后者见《260609-report-modifier-chain》。
+
+  当前代码中事件钩子【尚无任何实现】，仅以 Todo 注释占位。本报告先以
+  实代码确认现状，再给候选设计——候选设计明确标注，不与现状混淆
+  （依 CLAUDE.md 证据要求）。
+
+------------------------------------------------------------------------
+
+2. 代码分析
+------------------------------------------------------------------------
+
+  2.1 钩子现状：只有 Todo，零实现
+    来源：Assets/Scripts/systems/BattleSystem.cs
+      // Todo: Hook before draw card.        (:17)
+      // Todo: Hook after draw card.         (:19)
+      // Todo: Hook after play card.         (:21)
+      // Todo: Hook after player's turn over (:23)
+    来源：Assets/Scripts/gameStates/transient/BattleState.cs:22
+      // Todo: ... What if an item eat player's energy while battle begin? Hook?
+    全 Assets 下无 event、无 hook 用 delegate、无遗物 / Power 订阅者
+    （grep 到的 Power 全为枚举值与 DOTween jumpPower，无关）。
+    结论：钩子是纯占位概念，需从零设计。
+
+  2.2 钩子要接入的现有设施（乙C 反应的载体）
+    - 队列入口：GameActionManager.Add(GameAction)（GameActionManager.cs:25）
+      尾部入队。
+    - 执行器：ActionExecutor.Run（ActionExecutor.cs:28-40）严格队首 Pop、
+      逐个 `yield return _host.StartCoroutine(action.Execute())`（:36）跑完
+      一个再取下一个（方案 B / StartCoroutine 宿主，构造接收 MonoBehaviour
+      :13-16）。
+    - 归属：GameState 持有 GameActionManager（GameState.cs:18）与
+      ActionExecutor（:19），Init 注入 MonoBehaviour 宿主（:21-23）。
+    - 反应可写的状态：EnemyInstance.Hp（EnemyInstance.cs:5）、
+      BattleState.PlayerEnergies（BattleState.cs:11）。
+    结论：乙C 的「反应入队」可直接复用此队列 + 执行器，无需另造管道。
+
+  2.3 出牌钩子（甲3）的落点
+    PlayCard 尚未实现（BattleSystem.cs:26-28 throw NotImplementedException）。
+    候选的 PlayCardAction（见《260616-report-action-queue-granularity》
+    方案 1）的 Execute() 内是「AfterPlayCard」钩子的自然触发点。
+
+  2.4 与修改器链的区分（避免混淆，依 CLAUDE.md 消歧规则）
+    - 事件钩子：回答「发生了某件事，谁要反应」，反应是副作用（乙C 中即
+      入队新 Action）。触发于生命周期节点。
+    - 修改器链：回答「某个值生效前如何被变换」，改的是一个数（伤害基础
+      值 → +力量 → ×易伤 → 最终值），见《260609-report-modifier-chain》。
+    两者可由同一遗物分别使用，但机制不同，不可把钩子写成「顺便改数值」。
+
+------------------------------------------------------------------------
+
+3. 设计方案
+------------------------------------------------------------------------
+
+  钩子有两个正交决定：触发点放哪（甲），用什么机制（乙）。
+
+  3.1 甲、触发点层级
+    甲1 放 BattleSystem 生命周期点（现 Todo 位置）。
+      优：与回合流程一一对应、遗物逻辑好定位。
+      缺：只覆盖粗粒度节点，管不到「每个 Action 前后」。
+    甲2 放 ActionExecutor，每个 Action 前后全局广播（BeforeAction /
+        AfterAction，对应《260613-report-action-queue-and-executor》第 (j)
+        节执行器级钩子）。
+      优：任何 Action 可被监听、最通用。
+      缺：粒度过细；监听器需自行判断 Action 类型，易把队列业务语义污染
+      进监听器。
+    甲3 放具体 Action 的 Execute()（如 PlayCardAction 内 AfterPlayCard）。
+      优：钩子点与语义绑定最紧（订阅「出牌后」即字面意义）。
+      缺：钩子点分散在各 Action，靠约定别漏。
+    倾向：甲1（回合级）+ 甲3（卡牌级）组合；甲2 等真有细粒度横切需求再加。
+
+  3.2 乙、反应机制
+    乙A C# event / 多播委托（遗物 += handler）。
+      优：写法最省。
+      缺：调用顺序 = 订阅顺序，隐式且脆弱；两个遗物反应顺序不同会改变
+      RandomManager 的随机消耗序列 → 回放发散（见
+      《260610-report-replay-recording-granularity》）。对本项目强确定性
+      架构是隐患。
+    乙B 有序订阅表，触发时【同步直接做副作用】。
+      优：顺序显式可控、可复现。
+      缺：副作用绕过 Action 管道（无动画 / 无修改器链 / 无死亡级联），
+      与正常出牌路径行为易不一致；非平凡反应会重复逻辑。
+    乙C 有序订阅表 + 【反应入队为 Action】（复用执行器）。
+      原理：监听器被触发时不直接改状态，而是 GameActionManager.Add 一个
+      反应 GameAction，丢回执行器按 FIFO 跑。
+      优：反应与卡牌效果共享同一条执行 / 动画 / 确定性管道，行为一致；
+      反应里的随机也走正常 Action 执行序。
+      缺：反应延迟到队列轮到它才发生（非同步立刻）；每种反应都需一个
+      对应的 GameAction 类才能表达。
+    注：乙C 复用乙B 的「有序订阅表」管道，二者接口相同，仅监听器体不同
+    （改状态 vs 入队）；同一遗物可一条反应走 C、一条走 B，不冲突。
+
+    对比：
+      机制 | 走Action管道 | 与出牌一致 | 需新建Action | 确定性    | 适合
+      -----|--------------|------------|--------------|-----------|------------------
+      乙A  | -            | -          | -            | 差(隐式序)| 不推荐
+      乙B  | 否           | 易不一致   | 否           | 靠Order   | 纯数据小反应
+      乙C  | 是           | 一致       | 每种都要     | 靠Order   | 有动画/级联反应
+
+------------------------------------------------------------------------
+
+4. 结论
+------------------------------------------------------------------------
+
+  推荐 甲1 + 甲3 + 乙C：
+    - 触发点：回合级钩子在 BattleSystem（替换现 Todo），卡牌级钩子在
+      PlayCardAction.Execute()。
+    - 机制：有序 HookBus（按 Order 排序后遍历，杜绝 event 隐式乱序）+
+      监听器反应入队为 GameAction，复用 ActionExecutor / 队列。
+    - 乙B 仅留给一行即完、绝不触发后续的纯数据反应（如改能量 / 置标记）。
+
+  最小验证（候选实现，未编译）：
+    新增 EnumHookType / HookContext / IHookListener / HookBus（hooks/）+
+    示例遗物 AfterPlayDealRelic（relics/，AfterPlayCard 时
+    Add(new DamageAction().Create(2))）；GameState 持有 HookBus；在
+    UnityBoostrap.Start 注册遗物 → HookBus.Fire(AfterPlayCard) →
+    ActionExecutor.Kick 执行器。
+
+  端到端验证前置（当前代码 bug，须先修）：
+    - ActionExecutor.Kick 守卫条件反了（ActionExecutor.cs:20 为
+      `if (!_isRunning) return;`，应为 `if (_isRunning) return;`），否则
+      Run 永不启动、反应 Action 永不执行。
+    - UnityBoostrap.cs:14 以 `GameState _gameState = new GameState()`
+      遮蔽字段，字段恒为 null（Start 内冒烟测试用局部变量可跑，但属
+      latent bug）。
+    - 真实对局中 Kick 应在「入队之后」调用（如 BattleSystem 触发
+      AfterPlayCard 后），非空 Update 轮询。
+
+  交叉引用：
+    - 执行器 / 队列与执行器级钩子（甲2）：《260613-report-action-queue-and-executor》（第 (j) 节）
+    - 修改器链（另一类机制，2.4 区分）：《260609-report-modifier-chain》
+    - 出牌粒度与 PlayCardAction（甲3 落点）：《260616-report-action-queue-granularity》
+    - 确定性 / 回放对反应顺序的约束（乙A 风险）：《260610-report-replay-recording-granularity》
+
+========================================================================

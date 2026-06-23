@@ -1,9 +1,8 @@
 ﻿using action;
 using cards.definition;
-using cards.instance;
 using enums;
 using random;
-using tools.shuffle;
+using UnityEngine;
 
 namespace gameStates.persistant
 {
@@ -15,19 +14,14 @@ namespace gameStates.persistant
         public SeedManager SeedManager = new SeedManager();
         public RandomManager RandomManager = new RandomManager();
         public GameActionManager GameActionManager = new GameActionManager();
+        public ActionExecutor ActionExecutor;
         
-        public void Init(CardDefinitionLibrary library)
+        public void Init(CardDefinitionLibrary library, MonoBehaviour unityBoostrap)
         {
+            ActionExecutor = new ActionExecutor(unityBoostrap);
             SeedManager.Init(41u); // Use 42u for testing. Todo: Let user choose the seed, or generate seed
             RandomManager.Init(SeedManager);
             CardDefinitionManager.Init(library);
-            
-            // Note: Shuffling decks make no sense, just for testing
-            foreach (CardInstanceManager deck in PlayerState.DeckManagers)
-            {
-                ShuffleHelper.Shuffle(deck.CardInstances, RandomManager.ShuffleNextInt); 
-            }
         }
     }
-    
 }

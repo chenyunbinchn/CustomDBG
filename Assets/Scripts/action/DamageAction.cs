@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using enums;
+using UnityEngine;
 
 namespace action
 {
@@ -18,7 +19,9 @@ namespace action
 
         public override IEnumerator Execute()
         {
+            Debug.Log($"[DamageAction] Start, Value = {Value}");
             yield return null;
+            Debug.Log($"[DamageAction] End, Value = {Value}");
         }
     }
 }

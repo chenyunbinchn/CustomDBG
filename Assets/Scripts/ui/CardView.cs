@@ -31,7 +31,7 @@ public class CardView : MonoBehaviour,
         _instanceId = instance.Id;
 
         nameText.text = definition.Id.Name;
-        costText.text = definition.Cost.ToString();
+        // costText.text = definition.Cost.ToString(); Todo: Trying to make cost as CardEffect. So it is easier to modify
         descriptionText.text = definition.Description;
         // artworkImage.sprite = definition.Artwork;
     }

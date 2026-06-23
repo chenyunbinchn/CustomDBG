@@ -1,9 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using tools.assert;
 
 namespace action
 {
+    // Todo: Rename to BattleActionManger??
     public class GameActionManager
     {
         public List<GameAction> ActionQueue = new List<GameAction>();

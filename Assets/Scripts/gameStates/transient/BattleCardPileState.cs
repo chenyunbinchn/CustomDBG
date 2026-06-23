@@ -3,16 +3,22 @@ using cards.instance;
 
 namespace gameStates.transient
 {
-    public class BattleCardState
+    public class BattleCardPileState
     {
+        // Note: Copy deck from PlayerState when initialing. 
+        public CardPileManager PileManager = new CardPileManager();
+        // Note: Piles will get card from AllCardPile.
         public List<CardInstanceId> DrawPile = new List<CardInstanceId>();
         public List<CardInstanceId> ExhaustedPile = new List<CardInstanceId>();
         public List<CardInstanceId> HandCards = new List<CardInstanceId>();
         public List<CardInstanceId> DiscardPile = new List<CardInstanceId>();
         public List<CardInstanceId> PlayPile = new List<CardInstanceId>();
 
+        
         public void Reset()
         {
+            PileManager.Reset();
+            
             if (DrawPile.Count > 0)
             {
                 DrawPile.Clear();
