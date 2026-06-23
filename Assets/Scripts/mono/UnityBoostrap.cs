@@ -1,5 +1,4 @@
 ﻿using cards.definition;
-using gameStates;
 using gameStates.persistant;
 using UnityEngine;
 
@@ -9,20 +8,17 @@ namespace mono
     {
         public CardDefinitionLibrary AllCardLibrary;
         private GameState _gameState;
+        
         private void Start()
         {
             GameState _gameState = new GameState();
-            _gameState.Init(AllCardLibrary);
+            _gameState.Init(AllCardLibrary, this);
             Debug.Log("MainSeed: " + _gameState.SeedManager.MainSeed + "\n");
         }
 
         private void Update()
         {
-            if (_gameState.PlayerState.IsInBattle)
-            {
-                _gameState.BattleCardState.Reset();
-                
-            }
+            // Note: ActionExecutor.Kick is now driven from BattleSystem.TryPlayCard (needs a BattleContext).
         }
     }
 }

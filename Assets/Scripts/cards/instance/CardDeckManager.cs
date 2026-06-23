@@ -5,15 +5,15 @@ using enums;
 namespace cards.instance
 {
     // Work for each game round
-    public class CardInstanceManager
+    public class CardDeckManager
     {
-        public List<CardInstance> CardInstances = new List<CardInstance>();
+        public List<CardInstance> Deck = new List<CardInstance>();
         private uint _index = 0; 
 
         public CardInstanceId AddCardToDeck(CardDefinition definition)
         {
             CardInstance instance = new CardInstance(definition, new CardInstanceId(GenerateId()), EnumEnchantmentType.None);
-            CardInstances.Add(instance);
+            Deck.Add(instance);
 
             return instance.Id;
         }

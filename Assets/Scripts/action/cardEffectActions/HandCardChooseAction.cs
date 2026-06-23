@@ -1,11 +1,19 @@
-﻿using System.Collections;
+using System.Collections;
 using enums;
+using gameStates.transient;
 using UnityEngine;
 
-namespace action
+namespace action.cardEffectActions
 {
-    public class HandCardChooseAction : GameAction
+    public sealed class HandCardChooseAction : GameAction
     {
+        public HandCardChooseAction(int cardIndex, ActionId id, EnumActionStatus actionStatus)
+        {
+            CardIndex = cardIndex;
+            Id = id;
+            ActionStatus = actionStatus;
+        }
+
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
         public int CardIndex = -1;
@@ -14,22 +22,13 @@ namespace action
         {
             CardIndex = cardIndex;
         }
-        
-        public virtual GameAction Create(int chosenCardIndex)
-        {
-            ActionId id = new ActionId(); // Todo: Manage Id generation.
-            ActionStatus = EnumActionStatus.WaitingForExecution;
-            CardIndex = chosenCardIndex;
-            return this;
-        }
-        
-        public override IEnumerator Execute()
+
+        public override IEnumerator Execute(BattleContext context)
         {
             // Todo: ShowChooseCardUI();
             ActionStatus = EnumActionStatus.GatheringPlayerChoice;
             CardIndex = -1;
             yield return new WaitUntil(() => CardIndex >= 0);
-            
         }
     }
 }
