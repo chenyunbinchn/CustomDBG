@@ -1,23 +1,19 @@
 ﻿using cards.definition;
 using gameStates;
-using gameStates.persistant;
-using gameStates.transient;
-using systems;
 using UnityEngine;
 
 namespace mono
 {
     public class UnityBoostrap : MonoBehaviour
     {
-        public CardDefinitionLibrary AllCardLibrary;
+        public CardDefinitionLibrarySO allCardLibrarySo;
         public StateManager StateManager = new StateManager();
-        private GameState _gameState;
         
         private void Start()
         {
-            GameState gameState = new GameState();
-            gameState.Init(AllCardLibrary, this);
-            Debug.Log("MainSeed: " + gameState.SeedManager.MainSeed + "\n");
+            // Todo: Base on room's player number set playerNum
+            StateManager.Init(allCardLibrarySo, this, 4);
+            Debug.Log("MainSeed: " + StateManager.GameState.SeedManager.MainSeed + "\n");
         }
 
         private void Update()
