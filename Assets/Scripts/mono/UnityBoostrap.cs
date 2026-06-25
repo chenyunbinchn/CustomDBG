@@ -1,6 +1,9 @@
 ﻿using cards.definition;
+using cards.instance;
 using gameStates;
+using systems;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace mono
 {
@@ -19,11 +22,28 @@ namespace mono
         private void Update()
         {
             // Test code
-            // if (Input.GetKeyDown(KeyCode.Q))
-            // {
-            //     BattleApi.TryPlayCard(_gameConfigState. , _gameConfigState.GameActionManager, _gameConfigState.ActionExecutor, _gameConfigState.ActionExecutor, "攻击");    
-            // }
-            
+            if (Keyboard.current == null)
+            {
+                return;
+            }
+
+            if (Keyboard.current.qKey.wasPressedThisFrame)
+            {
+                BattleApi.EnterBattle(StateManager.BattleState, StateManager.GamePlayerState, StateManager.BattlePlayerStates,
+                    StateManager.GameState.RandomManager);
+            }
+
+            if (Keyboard.current.wKey.wasPressedThisFrame)
+            {
+                BattleApi.TryPlayHandCard(StateManager.BattleState, StateManager.BattlePlayerStates[0],
+                    StateManager.GameState.GameActionManager, StateManager.GameState.ActionExecutor,
+                    0, null);
+            }
+
+            if (Keyboard.current.aKey.wasPressedThisFrame)
+            {
+                // Todo: Add cards
+            }
         }
     }
 }

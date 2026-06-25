@@ -1,4 +1,5 @@
-﻿using action;
+﻿using System.Collections.Generic;
+using action;
 using action.cardEffectActions;
 using cards.definition;
 using cards.effects;
@@ -8,6 +9,7 @@ using enums;
 using gameStates.persistant;
 using gameStates.transient;
 using JetBrains.Annotations;
+using random;
 using tools.assert;
 using UnityEngine;
 
@@ -27,17 +29,35 @@ namespace systems
         // Todo: Check if player hit turn over
         // Todo: Hook after player's turn over
 
-        public static void EnterBattle(GamePlayerState gamePlayerState, BattlePlayerState[] battlePlayerStates)
+        public static void EnterBattle(BattleState battleState, GamePlayerState gamePlayerState, BattlePlayerState[] battlePlayerStates,
+            RandomManager randomManager)
         {
+            List<EnemyInstance> testEnemies = new List<EnemyInstance>();
+            testEnemies.Add(new EnemyInstance());
+            battleState.Reset(testEnemies);
             for (int i = 0; i < battlePlayerStates.Length; i++)
             {
                 battlePlayerStates[i].Reset();
                 battlePlayerStates[i].PileManager.CopyFromDeck(gamePlayerState.DeckManagers[i].Deck);
+                battlePlayerStates[i].BuildDrawPile(randomManager);
                 battlePlayerStates[i].PlayerEnergy = gamePlayerState.EnergiesLimit[i];
             }
         }
         
-        public static void TryPlayCard(BattleState battleState, BattlePlayerState state, GameActionManager actionManager, ActionExecutor actionExecutor,
+        // Todo: Remove test function
+        public static void TryPlayHandCard(BattleState battleState, BattlePlayerState battlePlayerState, GameActionManager actionManager, ActionExecutor actionExecutor,
+            int index, [CanBeNull] EnemyInstance target)
+        {
+            CardInstanceId cardId = battlePlayerState.DrawPile[index];
+            if (TryPlayCard(battleState, battlePlayerState, actionManager, actionExecutor, cardId, target))
+            {
+                battlePlayerState.DiscardPile.Add(cardId);
+                battlePlayerState.DrawPile.RemoveAt(index);
+            }
+        }
+        
+        // Note: Get CardInstanceId from UI view layer. Player choose hand card etc. 
+        public static bool TryPlayCard(BattleState battleState, BattlePlayerState battlePlayerState, GameActionManager actionManager, ActionExecutor actionExecutor,
             CardInstanceId cardId, [CanBeNull] EnemyInstance target)
         {
             // Note: TryPlayCard is ALLOWED to fail (wrong turn / executor busy / not enough energy / bad id).
@@ -45,26 +65,27 @@ namespace systems
             if (!battleState.IsPlayerTurn)
             {
                 Debug.Log("Not player's turn!!"); // Todo: Let UI layer handle this — play feedback, tell player cant do.
-                return;
+                return false;
             }
 
             if (actionExecutor.IsRunning)
             {
                 Debug.Log("Action executor is running!!"); // Todo: Let UI layer handle this.
-                return;
+                return false;
             }
 
             // Todo: Check energy affordability (sum CostEnergy effects vs BattleState.PlayerEnergies); fail gracefully to UI if not enough.
 
-            bool found = state.PileManager.Dictionary.TryGetValue(cardId, out CardInstance cardInstance);
+            bool found = battlePlayerState.PileManager.Dictionary.TryGetValue(cardId, out CardInstance cardInstance);
             if (!found)
             {
                 Debug.Log($"CardInstance not found for id {cardId.Value}!!"); // Todo: UI feedback.
-                return;
+                return false;
             }
 
             TranslateEffect(actionManager, cardInstance, target);
-            actionExecutor.Kick(actionManager, battleState, state);
+            actionExecutor.Kick(actionManager, battleState, battlePlayerState);
+            return true;
         }
 
         private static void TranslateEffect(GameActionManager actionManager, CardInstance instance, [CanBeNull] EnemyInstance target)

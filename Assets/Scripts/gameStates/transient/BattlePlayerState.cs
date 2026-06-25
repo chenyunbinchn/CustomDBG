@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using cards.instance;
+using random;
 
 namespace gameStates.transient
 {
@@ -39,6 +40,24 @@ namespace gameStates.transient
             if (PlayPile.Count > 0)
             {
                PlayPile.Clear();
+            }
+        }
+
+        // Note: Build the initial draw pile from PileManager.Dictionary. Deterministic for replay:
+        //       sort ids by Value first, then Fisher-Yates shuffle via RandomManager's shuffle domain.
+        public void BuildDrawPile(RandomManager randomManager)
+        {
+            DrawPile.Clear();
+            List<CardInstanceId> ids = new List<CardInstanceId>(PileManager.Dictionary.Keys);
+            ids.Sort((CardInstanceId a, CardInstanceId b) => a.Value.CompareTo(b.Value));
+            DrawPile.AddRange(ids);
+
+            for (int i = DrawPile.Count - 1; i > 0; i--)
+            {
+                int j = randomManager.ShuffleNextInt(i + 1);
+                CardInstanceId tmp = DrawPile[i];
+                DrawPile[i] = DrawPile[j];
+                DrawPile[j] = tmp;
             }
         }
     }

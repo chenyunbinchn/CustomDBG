@@ -23,9 +23,13 @@ namespace gameStates
             // Persistant States Init
             GameState.Init(unityBoostrap);
             GameDefinitionState.Init(librarySO);
-            GamePlayerState.Init(GameDefinitionState.CardDefinitionManager, 1, 50, 100, 3);
+            GamePlayerState.Init(GameDefinitionState.CardDefinitionManager, playerNum, 50, 100, 3);
             // Transient States
             BattlePlayerStates = new BattlePlayerState[PlayerNum];
+            for (int i = 0; i < PlayerNum; i++)
+            {
+                BattlePlayerStates[i] = new BattlePlayerState();
+            }
         }
     }
 }

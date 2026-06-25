@@ -18,6 +18,10 @@ MonoBehaviour:
     energyCost: 1
     effectAuthoringArray:
     - effectType: 1
+      targetType: 1
+      statusType: 0
+      value: 1
+    - effectType: 3
       targetType: 3
       statusType: 0
       value: 6
@@ -27,7 +31,11 @@ MonoBehaviour:
     cardType: 1
     energyCost: 1
     effectAuthoringArray:
-    - effectType: 3
+    - effectType: 1
+      targetType: 1
+      statusType: 0
+      value: 1
+    - effectType: 5
       targetType: 1
       statusType: 0
       value: 5
@@ -37,6 +45,10 @@ MonoBehaviour:
     cardType: 3
     energyCost: 1
     effectAuthoringArray:
+    - effectType: 1
+      targetType: 1
+      statusType: 0
+      value: 1
     - effectType: 3
       targetType: 3
       statusType: 0

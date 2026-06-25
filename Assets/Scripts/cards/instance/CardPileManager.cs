@@ -23,7 +23,7 @@ namespace cards.instance
 
         public CardInstanceId AddCard(CardDefinition definition)
         {
-            uint newIdValue = _maxIndex++;
+            uint newIdValue = ++_maxIndex;
             CardInstance newCard = new CardInstance(definition, new CardInstanceId(newIdValue), EnumEnchantmentType.None);
             return newCard.Id;
         }

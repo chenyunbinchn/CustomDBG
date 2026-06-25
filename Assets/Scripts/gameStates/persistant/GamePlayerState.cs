@@ -19,14 +19,14 @@ namespace gameStates.persistant
             Hps = new int[playerNum];
             EnergiesLimit = new int[playerNum];
             Golds = new int[playerNum];
-            DeckManagers = new CardDeckManager[playerNum];
-            
+
             for (int i = 0; i < playerNum; i++)
             {
                 Hps[i] = initHp;
                 EnergiesLimit[i] = initEnergy;
                 Golds[i] = initGold;
 
+                DeckManagers[i] = new CardDeckManager();
                 CardDeckManager curDeck = DeckManagers[i];
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
