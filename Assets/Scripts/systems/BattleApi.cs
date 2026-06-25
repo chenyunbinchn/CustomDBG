@@ -5,6 +5,7 @@ using cards.effects;
 using cards.instance;
 using enemy.instance;
 using enums;
+using gameStates.persistant;
 using gameStates.transient;
 using JetBrains.Annotations;
 using tools.assert;
@@ -13,31 +14,35 @@ using UnityEngine;
 namespace systems
 {
     // Note: BattleSystem translate CardEffect to GameAction.
-    public class BattleSystem
+    public static class BattleApi
     {
-        // Todo: Do I really need to make it a system?? Do I have to update every frame?? 
-        public void Update(BattleState battleState, BattleCardPileState cardPileState)
-        {
-            if (!battleState.IsPlayerTurn)
-            {
-                // Todo: Handle monster logic
-                return;
-            }
-            // Todo: Hook before draw card.
-            // Todo: Draw cards.
-            // Todo: Hook after draw card.
-            // Todo: PlayCard();
-            // Todo: Hook after play card.
-            // Todo: Check if player hit turn over
-            // Todo: Hook after player's turn over
-        }
+        // Todo: !!! Implement HookSystem. Should request hooking while: 1. Enter player turn / End player turn / etc;
+        //       2. Some CardEffectAction trigger (ex. DrawCardAction) 
+        
+        // Todo: Hook before draw card.
+        // Todo: Draw cards.
+        // Todo: Hook after draw card.
+        // Todo: PlayCard();
+        // Todo: Hook after play card.
+        // Todo: Check if player hit turn over
+        // Todo: Hook after player's turn over
 
-        public void TryPlayCard(BattleContext context, GameActionManager actionManager, ActionExecutor actionExecutor,
+        public static void EnterBattle(GamePlayerState gamePlayerState, BattlePlayerState[] battlePlayerStates)
+        {
+            for (int i = 0; i < battlePlayerStates.Length; i++)
+            {
+                battlePlayerStates[i].Reset();
+                battlePlayerStates[i].PileManager.CopyFromDeck(gamePlayerState.DeckManagers[i].Deck);
+                battlePlayerStates[i].PlayerEnergy = gamePlayerState.EnergiesLimit[i];
+            }
+        }
+        
+        public static void TryPlayCard(BattleState battleState, BattlePlayerState state, GameActionManager actionManager, ActionExecutor actionExecutor,
             CardInstanceId cardId, [CanBeNull] EnemyInstance target)
         {
             // Note: TryPlayCard is ALLOWED to fail (wrong turn / executor busy / not enough energy / bad id).
             //       It must NOT MyAssert/crash — just log and return so the UI layer can give feedback.
-            if (!context.BattleState.IsPlayerTurn)
+            if (!battleState.IsPlayerTurn)
             {
                 Debug.Log("Not player's turn!!"); // Todo: Let UI layer handle this — play feedback, tell player cant do.
                 return;
@@ -51,7 +56,7 @@ namespace systems
 
             // Todo: Check energy affordability (sum CostEnergy effects vs BattleState.PlayerEnergies); fail gracefully to UI if not enough.
 
-            bool found = context.CardPileState.PileManager.Dictionary.TryGetValue(cardId, out CardInstance cardInstance);
+            bool found = state.PileManager.Dictionary.TryGetValue(cardId, out CardInstance cardInstance);
             if (!found)
             {
                 Debug.Log($"CardInstance not found for id {cardId.Value}!!"); // Todo: UI feedback.
@@ -59,10 +64,10 @@ namespace systems
             }
 
             TranslateEffect(actionManager, cardInstance, target);
-            actionExecutor.Kick(actionManager, context);
+            actionExecutor.Kick(actionManager, battleState, state);
         }
 
-        private void TranslateEffect(GameActionManager actionManager, CardInstance instance, [CanBeNull] EnemyInstance target)
+        private static void TranslateEffect(GameActionManager actionManager, CardInstance instance, [CanBeNull] EnemyInstance target)
         {
             CardDefinition cardDefinition = instance.Definition;
 

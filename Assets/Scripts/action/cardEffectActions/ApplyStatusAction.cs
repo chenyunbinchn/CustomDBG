@@ -25,7 +25,7 @@ namespace action.cardEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute(BattleContext context)
+        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
             Debug.Log($"[ApplyStatusAction] StatusType = {StatusType}, Value = {Value}");
             yield return null;

@@ -9,12 +9,13 @@ namespace gameStates.persistant
     public class GameState
     {
         public EnumDifficulty Difficulty;
-        public PlayerState PlayerState = new PlayerState();
         public CardDefinitionManager CardDefinitionManager = new CardDefinitionManager();
         public SeedManager SeedManager = new SeedManager();
         public RandomManager RandomManager = new RandomManager();
         public GameActionManager GameActionManager = new GameActionManager();
         public ActionExecutor ActionExecutor;
+        
+        public bool IsInBattle = false;
         
         public void Init(CardDefinitionLibrary library, MonoBehaviour unityBoostrap)
         {

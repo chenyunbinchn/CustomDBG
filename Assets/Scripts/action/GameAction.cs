@@ -8,6 +8,6 @@ namespace action
     {
         public abstract ActionId Id { get; }
         public abstract EnumActionStatus ActionStatus { get; set; }
-        public abstract IEnumerator Execute(BattleContext context); // Todo: Check if action should not have execute function, ActionExecutor handle every execute?
+        public abstract IEnumerator Execute(BattleState battleState, BattlePlayerState playerState); // Todo: Check if action should not have execute function, ActionExecutor handle every execute?
     }
 }
