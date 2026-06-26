@@ -39,7 +39,7 @@ namespace systems
             {
                 battlePlayerStates[i].Reset();
                 battlePlayerStates[i].PileManager.CopyFromDeck(gamePlayerState.DeckManagers[i].Deck);
-                battlePlayerStates[i].BuildDrawPile(randomManager);
+                BattlePileApi.BuildDrawPile(battlePlayerStates[i], randomManager);
                 battlePlayerStates[i].PlayerEnergy = gamePlayerState.EnergiesLimit[i];
             }
         }
