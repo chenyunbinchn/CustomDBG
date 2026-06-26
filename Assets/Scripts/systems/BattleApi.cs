@@ -32,9 +32,9 @@ namespace systems
         public static void EnterBattle(BattleState battleState, GamePlayerState gamePlayerState, BattlePlayerState[] battlePlayerStates,
             RandomManager randomManager)
         {
-            List<EnemyInstance> testEnemies = new List<EnemyInstance>();
-            testEnemies.Add(new EnemyInstance());
-            battleState.Reset(testEnemies);
+            List<EnemyInstance> testEnemies = new List<EnemyInstance>(); // Test
+             testEnemies.Add(new EnemyInstance()); // Test
+            battleState.Reset(testEnemies); // Test
             for (int i = 0; i < battlePlayerStates.Length; i++)
             {
                 battlePlayerStates[i].Reset();
@@ -48,11 +48,18 @@ namespace systems
         public static void TryPlayHandCard(BattleState battleState, BattlePlayerState battlePlayerState, GameActionManager actionManager, ActionExecutor actionExecutor,
             int index, [CanBeNull] EnemyInstance target)
         {
-            CardInstanceId cardId = battlePlayerState.DrawPile[index];
+            if (index < 0 || index >= battlePlayerState.HandCards.Count)
+            {
+                Debug.Log($"Card Index {index} not in hand (Count={battlePlayerState.HandCards.Count})!!");
+                return;
+            }
+
+            CardInstanceId cardId = battlePlayerState.HandCards[index];
             if (TryPlayCard(battleState, battlePlayerState, actionManager, actionExecutor, cardId, target))
             {
                 battlePlayerState.DiscardPile.Add(cardId);
-                battlePlayerState.DrawPile.RemoveAt(index);
+                battlePlayerState.HandCards.RemoveAt(index);
+                Debug.Log($"[Pile] PlayCard -> played HandCards[{index}] id={cardId.Value}; Hand={battlePlayerState.HandCards.Count}, Discard={battlePlayerState.DiscardPile.Count}");
             }
         }
         

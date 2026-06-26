@@ -1,5 +1,4 @@
 ﻿using cards.definition;
-using cards.instance;
 using gameStates;
 using systems;
 using UnityEngine;
@@ -44,6 +43,12 @@ namespace mono
             {
                 // Todo: Add cards
             }
+
+            if (Keyboard.current.sKey.wasPressedThisFrame)
+            {
+                BattlePileApi.DrawCards(StateManager.BattlePlayerStates[0], 3, StateManager.GameState.RandomManager);
+            }
+            
         }
     }
 }

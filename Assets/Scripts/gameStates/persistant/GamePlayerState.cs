@@ -34,6 +34,7 @@ namespace gameStates.persistant
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("防御"))); // Test
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("防御"))); // Test
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("防御"))); // Test
+                curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("剑柄打击"))); // Test
             }
         }
     }
