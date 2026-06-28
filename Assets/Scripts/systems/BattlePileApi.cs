@@ -16,16 +16,13 @@ namespace systems
         {
             pile.Clear();
             pile.AddRange(source);
-            Debug.Log($"[Pile] FillFrom -> {pile.Count} cards {Describe(pile)}");
         }
 
         // Note: Move every card from one pile to the end of another, leaving 'from' empty.
         public static void MoveAll(List<CardInstanceId> from, List<CardInstanceId> to)
         {
-            int moved = from.Count;
             to.AddRange(from);
             from.Clear();
-            Debug.Log($"[Pile] MoveAll -> moved {moved}; from={from.Count}, to={to.Count} {Describe(to)}");
         }
 
         // Note: Shuffle a pile on the shuffle RNG domain. StableShuffle sorts into a canonical order
@@ -34,7 +31,6 @@ namespace systems
         public static void Shuffle(List<CardInstanceId> pile, RandomManager randomManager)
         {
             ShuffleHelper.StableShuffle(pile, randomManager.ShuffleNextInt);
-            Debug.Log($"[Pile] Shuffle -> {pile.Count} cards {Describe(pile)}");
         }
 
         // Note: Build the initial draw pile = all of the player's cards (PileManager registry), then shuffle.
@@ -42,7 +38,7 @@ namespace systems
         {
             FillFrom(state.DrawPile, state.PileManager.Dictionary.Keys);
             Shuffle(state.DrawPile, randomManager);
-            Debug.Log($"[Pile] BuildDrawPile -> DrawPile={state.DrawPile.Count} {Describe(state.DrawPile)}");
+            Debug.Log($"[Pile] BuildDrawPile -> DrawPile({state.DrawPile.Count}): {state.PileManager.DescribePile(state.DrawPile)}");
         }
 
         // Todo (L3 primitives — add each when it gets its first caller):
@@ -60,45 +56,34 @@ namespace systems
                 to.Add(from[top]);
                 from.RemoveAt(top);
             }
-            Debug.Log($"[Pile] Draw -> requested {count}, drew {n}; from={from.Count}, to={to.Count}");
         }
 
         public static void ReshuffleDiscardIntoDraw(BattlePlayerState state, RandomManager randomManager)
         {
-            Debug.Log($"[Pile] ReshuffleDiscardIntoDraw: Discard={state.DiscardPile.Count} -> DrawPile (DrawPile before={state.DrawPile.Count})");
+            int discardCount = state.DiscardPile.Count;
             MoveAll(state.DiscardPile, state.DrawPile);
             Shuffle(state.DrawPile, randomManager);
+            Debug.Log($"[Pile] Reshuffle Discard({discardCount}) into Draw -> DrawPile({state.DrawPile.Count}): {state.PileManager.DescribePile(state.DrawPile)}");
         }
 
         // Draw from DrawPile
         public static void DrawCards(BattlePlayerState state, int count, RandomManager randomManager)
         {
-            Debug.Log($"[Pile] DrawCards: want {count}; DrawPile={state.DrawPile.Count}, Hand={state.HandCards.Count}, Discard={state.DiscardPile.Count}");
+            int drawn = 0;
             for (int i = 0; i < count; i++)
             {
                 if (state.DrawPile.Count == 0)
                 {
                     if (state.DiscardPile.Count == 0)
                     {
-                        Debug.Log($"[Pile] DrawCards: stopped early, no cards left (drew {i}/{count})");
-                        return; // No card can be drawn
+                        break; // No card left to draw
                     }
                     ReshuffleDiscardIntoDraw(state, randomManager);
                 }
                 Draw(state.DrawPile, state.HandCards, 1);
+                drawn++;
             }
-            Debug.Log($"[Pile] DrawCards done: Hand={state.HandCards.Count}, DrawPile={state.DrawPile.Count}, Discard={state.DiscardPile.Count}");
-        }
-
-        // Note: Debug helper — list a pile's card instance ids, e.g. "[3, 1, 5]".
-        private static string Describe(List<CardInstanceId> pile)
-        {
-            string[] ids = new string[pile.Count];
-            for (int i = 0; i < pile.Count; i++)
-            {
-                ids[i] = pile[i].Value.ToString();
-            }
-            return "[" + string.Join(", ", ids) + "]";
+            Debug.Log($"[Pile] DrawCards -> drew {drawn}/{count}; Hand({state.HandCards.Count}): {state.PileManager.DescribePile(state.HandCards)}; DrawPile={state.DrawPile.Count}, Discard={state.DiscardPile.Count}");
         }
     }
 }

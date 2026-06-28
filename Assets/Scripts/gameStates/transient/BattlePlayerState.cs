@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using cards.instance;
+using UnityEngine;
 
 namespace gameStates.transient
 {
@@ -40,6 +41,7 @@ namespace gameStates.transient
             {
                PlayPile.Clear();
             }
+            Debug.Log("[Pile] Reset -> all piles cleared (Draw/Hand/Discard/Play/Exhaust)");
         }
     }
 }

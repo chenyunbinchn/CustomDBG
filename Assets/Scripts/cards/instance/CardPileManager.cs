@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using cards.definition;
 using enums;
+using UnityEngine;
 
 namespace cards.instance
 {
@@ -19,6 +20,7 @@ namespace cards.instance
                     _maxIndex = card.Id.Value;
                 }
             }
+            Debug.Log($"[Pile] CopyFromDeck -> registry({Dictionary.Count}): {DescribePile(new List<CardInstanceId>(Dictionary.Keys))}");
         }
 
         public CardInstanceId AddCard(CardDefinition definition)
@@ -31,6 +33,24 @@ namespace cards.instance
         public void Reset()
         {
             Dictionary.Clear();
+        }
+
+        // Note: Debug-friendly name for a card instance, e.g. "攻击#3" (definition name + instance id).
+        public string DescribeCard(CardInstanceId id)
+        {
+            bool found = Dictionary.TryGetValue(id, out CardInstance card);
+            return found ? $"{card.Definition.Id.Name}#{id.Value}" : $"?#{id.Value}";
+        }
+
+        // Note: Debug-friendly listing of a pile, e.g. "[攻击#3, 防御#1]".
+        public string DescribePile(List<CardInstanceId> pile)
+        {
+            string[] parts = new string[pile.Count];
+            for (int i = 0; i < pile.Count; i++)
+            {
+                parts[i] = DescribeCard(pile[i]);
+            }
+            return "[" + string.Join(", ", parts) + "]";
         }
     }
 }

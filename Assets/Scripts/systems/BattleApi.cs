@@ -59,7 +59,7 @@ namespace systems
             {
                 battlePlayerState.DiscardPile.Add(cardId);
                 battlePlayerState.HandCards.RemoveAt(index);
-                Debug.Log($"[Pile] PlayCard -> played HandCards[{index}] id={cardId.Value}; Hand={battlePlayerState.HandCards.Count}, Discard={battlePlayerState.DiscardPile.Count}");
+                Debug.Log($"[Pile] Play {battlePlayerState.PileManager.DescribeCard(cardId)} -> Hand({battlePlayerState.HandCards.Count}): {battlePlayerState.PileManager.DescribePile(battlePlayerState.HandCards)}; Discard={battlePlayerState.DiscardPile.Count}");
             }
         }
         
