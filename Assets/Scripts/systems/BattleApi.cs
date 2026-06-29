@@ -101,31 +101,31 @@ namespace systems
 
             for (int i = 0; i < cardDefinition.Effects.Length; i++)
             {
-                CardEffect effect = cardDefinition.Effects[i];
+                Effect effect = cardDefinition.Effects[i];
                 GameAction action = null;
                 switch (effect.EffectType)
                 {
-                    case EnumCardEffectType.CostEnergy:
+                    case EnumEffectType.CostEnergy:
                         action = new CostEnergyAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                         break;
-                    case EnumCardEffectType.GainEnergy:
+                    case EnumEffectType.GainEnergy:
                         action = new GainEnergyAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                         break;
-                    case EnumCardEffectType.DealDamage:
+                    case EnumEffectType.DealDamage:
                         // Todo: multi-target (AllEnemy/RandomEnemy) resolution; for now only the single selected `target` is captured.
                         action = new DamageAction(effect.Value, effect.TargetType, target, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                         break;
-                    case EnumCardEffectType.DrawCards:
+                    case EnumEffectType.DrawCards:
                         action = new DrawCardAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                         break;
-                    case EnumCardEffectType.GainBlock:
+                    case EnumEffectType.GainBlock:
                         action = new GainBlockAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                         break;
-                    case EnumCardEffectType.ApplyStatus:
+                    case EnumEffectType.ApplyStatus:
                         // Todo: multi-target resolution; for now only the single selected `target` is captured.
                         action = new ApplyStatusAction(effect.StatusType, effect.Value, effect.TargetType, target, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                         break;
-                    case EnumCardEffectType.Exhaust:
+                    case EnumEffectType.Exhaust:
                         // Todo: resolve exhaust targets — Self => the played card (instance.Id); selected => via HandCardChooseAction multi-select.
                         action = new ExhaustCardAction(effect.TargetType, System.Array.Empty<int>(), actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                         break;

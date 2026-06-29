@@ -6,14 +6,14 @@ namespace cards.effects
     [Serializable]
     public struct CardEffectAuthoring
     {
-        public EnumCardEffectType effectType;
+        public EnumEffectType effectType;
         public EnumTargetType targetType;
-        public EnumCardStatusType statusType;
+        public EnumStatusType statusType;
         public int value;
 
-        public CardEffect CreateRuntimeEffect()
+        public Effect CreateRuntimeEffect()
         {
-            return new CardEffect(effectType, targetType, statusType, value);
+            return new Effect(effectType, targetType, statusType, value);
         }
     }
 }

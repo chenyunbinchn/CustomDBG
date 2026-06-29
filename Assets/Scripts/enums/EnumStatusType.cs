@@ -1,6 +1,6 @@
 ﻿namespace enums
 {
-    public enum EnumCardStatusType
+    public enum EnumStatusType
     {
         None = 0,
         Weak,

@@ -2,14 +2,14 @@
 
 namespace cards.effects
 {
-    public struct CardEffect
+    public struct Effect
     {
-        public EnumCardEffectType EffectType;
+        public EnumEffectType EffectType;
         public EnumTargetType TargetType;
-        public EnumCardStatusType StatusType;
+        public EnumStatusType StatusType;
         public int Value;
 
-        public CardEffect(EnumCardEffectType effectType, EnumTargetType targetType, EnumCardStatusType statusType, int value)
+        public Effect(EnumEffectType effectType, EnumTargetType targetType, EnumStatusType statusType, int value)
         {
             EffectType = effectType;
             TargetType = targetType;

@@ -7,10 +7,10 @@ namespace cards.definition
     {
         public readonly CardDefinitionId Id;
         public readonly EnumCardType Type;
-        public readonly CardEffect[] Effects; // Todo: Probably not each card can be define only by card effects
+        public readonly Effect[] Effects; // Todo: Probably not each card can be define only by card effects
         public readonly string Description;
 
-        public CardDefinition(CardDefinitionId id, EnumCardType type, CardEffect[] effects, string description)
+        public CardDefinition(CardDefinitionId id, EnumCardType type, Effect[] effects, string description)
         {
             Id = id;
             Type = type;

@@ -10,12 +10,12 @@ namespace action.cardEffectActions
     {
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
-        public EnumCardStatusType StatusType;
+        public EnumStatusType StatusType;
         public int Value;
         public EnumTargetType TargetType;
         public EnemyInstance Target;
 
-        public ApplyStatusAction(EnumCardStatusType statusType, int value, EnumTargetType targetType, EnemyInstance target, ActionId id, EnumActionStatus actionStatus)
+        public ApplyStatusAction(EnumStatusType statusType, int value, EnumTargetType targetType, EnemyInstance target, ActionId id, EnumActionStatus actionStatus)
         {
             StatusType = statusType;
             Value = value;

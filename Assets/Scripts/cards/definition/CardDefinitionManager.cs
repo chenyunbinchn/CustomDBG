@@ -50,7 +50,7 @@ namespace cards.definition
                 MyAssert.Assert(so.effectAuthoringArray.Length > 0, 
                     "so.effectAuthoringArray.Length <= 0, can not load! Check CardDefinitionLibrary!");
                 
-                CardEffect[] effects = new CardEffect[so.effectAuthoringArray.Length];
+                Effect[] effects = new Effect[so.effectAuthoringArray.Length];
                 for (int i = 0; i < so.effectAuthoringArray.Length; i++)
                 {
                     effects[i] = so.effectAuthoringArray[i].CreateRuntimeEffect();
