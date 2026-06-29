@@ -4,7 +4,7 @@ using enums;
 using gameStates.transient;
 using UnityEngine;
 
-namespace action.cardEffectActions
+namespace action.gameEffectActions
 {
     public sealed class DamageAction : GameAction
     {

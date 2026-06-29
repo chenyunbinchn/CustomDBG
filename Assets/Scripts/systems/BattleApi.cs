@@ -1,11 +1,12 @@
 ﻿using System.Collections.Generic;
 using action;
-using action.cardEffectActions;
+using action.gameEffectActions;
 using cards.definition;
 using cards.effects;
 using cards.instance;
 using enemy.instance;
 using enums;
+using gameEffects;
 using gameStates.persistant;
 using gameStates.transient;
 using JetBrains.Annotations;

@@ -1,6 +1,6 @@
 ﻿using enums;
 
-namespace cards.effects
+namespace gameEffects
 {
     public struct Effect
     {

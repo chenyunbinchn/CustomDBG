@@ -1,5 +1,6 @@
 ﻿using System;
 using enums;
+using gameEffects;
 
 namespace cards.effects
 {
