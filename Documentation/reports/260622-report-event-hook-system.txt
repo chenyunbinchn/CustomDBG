@@ -8,6 +8,10 @@
              事件钩子的触发点放置（甲1/甲2/甲3）与反应机制（乙A/乙B/乙C），
              与修改器链区分，推荐 甲1+甲3+乙C，并给最小验证例子与端到端
              前置 bug。
+  2026-06-27 追加第5节：STS2 参考实现的钩子系统源码实证（Hook /
+             AbstractModel / IterateHookListeners / PowerCmd /
+             GenericHookGameAction，带文件路径+行号），印证乙C 入队与确定
+             顺序，并提出"监听者免注册、即时从权威容器收集"的补充变体。
 
 ------------------------------------------------------------------------
 
@@ -149,5 +153,131 @@
     - 修改器链（另一类机制，2.4 区分）：《260609-report-modifier-chain》
     - 出牌粒度与 PlayCardAction（甲3 落点）：《260616-report-action-queue-granularity》
     - 确定性 / 回放对反应顺序的约束（乙A 风险）：《260610-report-replay-recording-granularity》
+
+------------------------------------------------------------------------
+
+5. 附录：STS2 参考实现实证调研（2026-06-27 追加）
+------------------------------------------------------------------------
+
+  本节补足正文缺失的一环：参考实现 STS2 的【实际】钩子实现（带文件
+  路径+行号，依 CLAUDE.md 证据要求）。正文 1–4 节为 6-22 原稿（其中
+  BattleSystem 已重构为 BattleApi、部分前置 bug 已修，旧行号仅供历史
+  参考）；本节为 6-27 追加。
+
+  5.1 调研范围与可信度
+    源：D:\Decompiled Projects\Slay the Spire 2\src（Godot + C# 反编译）。
+    仅读 Hook + 牌堆 + Power 相关约 10 个文件（src/Core 有 3393 个 .cs），
+    系抽样而非全面审计。反编译会丢注释、生成 _003C_003E.. / InlineArray
+    等编译器名，故本节只评架构 / 数据流，不评注释与局部命名。
+
+  5.2 分发器：Hook 静态类（集中分发，79 个事件点）
+    来源：src/Core/Hooks/Hook.cs:26（public static class Hook）
+    79 个事件点，每个一个 static async Task，统一模板（:28-35 AfterActEntered）：
+        foreach (AbstractModel model in combatState.IterateHookListeners())
+        {
+            await model.AfterCardPlayed(ctx, play);   // :181-197 带参版
+            model.InvokeExecutionFinished();
+        }
+    即「战斗流程在节点显式调 Hook.Xxx → Hook 遍历监听者调其同名方法」。
+    不是事件总线 / 订阅，是集中遍历分发。
+
+  5.3 监听者契约：AbstractModel 虚方法（默认 no-op）
+    来源：src/Core/Models/AbstractModel.cs:29（abstract 基类，~180 virtual）
+      :236  public virtual Task AfterCardPlayed(...) => Task.CompletedTask;
+      :121  InvokeExecutionFinished()（触发 :45 的 ExecutionFinished 事件）
+    所有战斗对象（Power / Relic / Card / Monster / Potion / Orb…）共用此
+    基类，每个事件一个默认空虚方法，子类只覆盖关心的。代价：上帝基类
+    （1034 行、~180 virtual）。
+
+  5.4 监听者收集：IterateHookListeners（即时收集 + 隐式订阅）★关键
+    来源：src/Core/Combat/CombatState.cs:271-354
+    每次事件【从零重建一个 list】，遍历收集（按序）：
+      每个 creature：creature.Powers（状态）；怪物 → creature.Monster；
+      玩家 → Relics(未 melted)、PotionSlots、OrbQueue.Orbs、
+             所有牌堆每张 CardModel + 其 Affliction + Enchantment；
+      全局：Modifiers、BadgeModels、MultiplayerScalingModel；
+      收尾：if (Contains(item)) yield（过滤已移除者）+ ModHelper mod 扩展。
+    要点：无订阅表、无 += / -=；【在场即监听】，每事件现取，故监听者
+    集合恒与战场实况一致，且【遍历顺序固定 → 确定性】（印证本报告对乙A
+    隐式乱序的否定、对确定顺序的要求）。代价：每事件 O(全部对象) 重建
+    （STS2 用 Players.Count*50 预分配容量摊销）。
+
+  5.5 监听者创建时机
+    Power（combat 级，动态）：src/Core/Commands/PowerCmd.cs:33-55 Apply<T>：
+      ModelDb.Power<T>() 取不可变模板 → FindExistingInstanceForStacking
+      （可叠加则改量、不新建）→ 否则 powerModel.ToMutable() 克隆可变实例
+      → 一串 Hook（BeforePowerAmountChanged / ModifyPowerAmount…）
+      → creature.ApplyPowerInternal 加进容器。
+    容器：src/Core/Entities/Creatures/Creature.cs:34 _powers、:276 Powers、
+      :517-529 ApplyPowerInternal。
+    层级（按容器归属推断，未逐一读各自创建点）：Relic = run 级拾取时；
+      Monster / Card = 战斗开始。
+    要点：【创建并放进它该在的权威容器，即自动成为监听者，无注册步骤】。
+
+  5.6 反应与 action 队列的桥：GenericHookGameAction
+    来源：src/Core/GameActions/GenericHookGameAction.cs:1-72
+      class GenericHookGameAction : GameAction；RecordableToReplay => false；
+      ChoiceContext（HookPlayerChoiceContext，处理 hook 内玩家选择）；
+      多端用 HookActionEnqueuedMessage 同步。
+    即 hook 触发的反应可作为 GameAction 入队 —— 直接印证本报告【乙C】。
+
+  5.7 具体监听者示例
+    来源：src/Core/Models/Powers/AfterimagePower.cs:1-48
+      override BeforeCardPlayed：记录本次出牌时的层数；
+      override AfterCardPlayed：await CreatureCmd.GainBlock(...)（产出效果）。
+    即「子类覆盖两个 hook、在 After 里产出效果」的最小真实样例。
+
+  5.8 与本报告方案的对照（印证 / 差异 / 补充）
+    印证：
+      - 乙C（反应入队为 Action）= STS2 GenericHookGameAction（5.6）。
+      - 否定乙A（event 隐式序）= STS2 无 +=、靠固定遍历定序（5.4）。
+      - 钩子点与语义绑定（甲3）= STS2 在流程节点显式调 Hook.Xxx。
+    差异（机制）：
+      - STS2 用 async / await；本项目用协程 yield。对应：async Task ↔
+        IEnumerator、await ↔ yield return、Task.CompletedTask ↔ 立即结束
+        的协程。故本项目走乙C 不必引入 async，反应 GameAction.Execute 用
+        协程即可。
+    补充（本节新增）★：
+      - 本报告 3.2 乙B / 乙C 假设「有序订阅表 + 注册 / 注销」。STS2 给出
+        更优变体：【免注册、即时收集】——不维护订阅表，改为
+        BattleState.IterateHookListeners() 每次从权威容器（EnemyList 各
+        敌人的状态、玩家遗物列表）现取，顺序由容器遍历固定。既省去
+        注册 / 注销维护，又天然确定、无「忘记注销的幽灵监听者」。建议
+        本项目采纳此变体替代显式订阅表。
+    规模警示：
+      - STS2 的 79 个事件点是数百 Power / Relic 内容【堆出来的果，非设计
+        的因】（src/Core/Models/Powers 有 261 个 .cs）。本项目应按内容需求
+        增量加，起步只做最小通知类集（OnPlayerTurnStart / End、
+        AfterCardPlayed、Before / AfterDrawCard 约 4–6 个）。
+      - STS2 的 AfterModifying* 系列是【修改类】钩子（改伤害 / 抽牌数等），
+        对应本项目【修改器链】，按 2.4 与本类事件钩子分离，见
+        《260609-report-modifier-chain》，勿混入本系统。
+
+  5.9 对结论的补充
+    维持正文 4 的推荐（甲1 + 甲3 + 乙C），并据本节补一条：监听者收集
+    采用 STS2 式【即时从权威容器收集】，替代 3.2 的显式订阅表 / 注册——
+    前提是先建好监听者容器（EnemyList 各敌人的状态集合、玩家遗物列表）；
+    当前 EnemyInstance 仍为空壳，须先补。
+
+  5.10 广播 + 自过滤的权衡（监听者侧样板，及减负建议）
+    现象：IterateHookListeners（5.4）收集【全场】监听者，Hook 把事件
+    【无差别广播】给每一个 → 任一张牌打出时，场上每个监听者（含敌方
+    身上的同名 Power）的对应 hook 都会被调到。
+    证据：src/Core/Models/Powers/AfterimagePower.cs 两个 hook 开头都先
+      `if (cardPlay.Card.Owner.Creature != base.Owner) return;`——监听者
+      自己判「这张牌是不是我主人打的」，不是则早退。
+    权衡：分发端极简（无差别广播、无按 owner 分桶的订阅管理），代价是
+    把【相关性过滤】责任下放到每个监听者，每个 hook 方法都要重复写
+    `== Owner` / target 判定这类样板。事件总线若按 owner 分桶订阅可省掉
+    自判，但订阅 / 注销管理更复杂（且与 5.4「免注册即时收集」相悖）。
+    对本项目：若采纳 5.4 的即时收集 + 集中广播，监听者（遗物 / 状态）的
+    hook 同样要自过滤。建议在 HookContext 里带上【事件源 / owner】
+    （出牌者 / 伤害来源等），并给 IHookListener 一个基类 helper（如
+    bool IsSelf(HookContext ctx) => ctx.Source == Owner;），把「与我相关
+    吗」收敛成一行，减少每个监听者的重复样板。
+
+  本节交叉引用：
+    - STS2 hook 速查（机制要点）：memory sts2-hook-system-reference.md
+    - 修改类钩子 / 修改器链：《260609-report-modifier-chain》
 
 ========================================================================
