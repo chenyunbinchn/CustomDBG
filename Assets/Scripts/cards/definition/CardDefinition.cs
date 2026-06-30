@@ -1,5 +1,4 @@
-﻿using cards.authoring;
-using enums;
+﻿using enums;
 using gameEffects;
 
 namespace cards.definition

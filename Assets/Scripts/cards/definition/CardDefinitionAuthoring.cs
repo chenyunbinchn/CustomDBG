@@ -1,6 +1,6 @@
 ﻿using System;
-using cards.authoring;
 using enums;
+using gameEffects.authoring;
 using UnityEngine;
 
 namespace cards.definition
@@ -12,7 +12,7 @@ namespace cards.definition
         [SerializeField] public string idName;
         [SerializeField] public EnumCardType cardType;
         [SerializeField] public int energyCost;
-        [SerializeField] public CardEffectAuthoring[] effectAuthoringArray;
+        [SerializeField] public EffectAuthoring[] effectAuthoringArray;
         [SerializeField] public string description;
         [SerializeField] public Sprite image;
     }

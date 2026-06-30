@@ -2,7 +2,6 @@
 using action;
 using action.gameEffectActions;
 using cards.definition;
-using cards.authoring;
 using cards.instance;
 using enemy.instance;
 using enums;

@@ -1,11 +1,10 @@
 ﻿using System;
 using enums;
-using gameEffects;
 
-namespace cards.authoring
+namespace gameEffects.authoring
 {
     [Serializable]
-    public struct CardEffectAuthoring
+    public struct EffectAuthoring
     {
         public EnumEffectType effectType;
         public EnumTargetType targetType;
