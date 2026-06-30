@@ -210,6 +210,14 @@ this one makes *every claim* concrete.
   (e.g. `Assets/Scripts/action/ActionQueue.cs:21`). Never absolute, never "…"-abbreviated.
 - Tools (Read/Edit/Grep) still take absolute paths internally; convert only for display.
 
+### Plain Chinese (中文回复用朴实语言)
+When replying in 中文, use plain, everyday wording — not stiff translationese or abstract
+jargon. Banned examples the user called out: "宿主", "地基缺口", "行为分发", "设计基线",
+"收口" (and similar: "心智模型", "正交", "一等公民", "护栏"). Use concrete plain phrasing
+instead (e.g. "挂在玩家/怪物/卡牌上" not "宿主"; "总结" not "收口"; "决定调用哪段逻辑"
+not "行为分发"). Technical terms and code identifiers (GameAction, IHookListener, …) keep
+their original form.
+
 ## Coding Rules
 
 ### No var

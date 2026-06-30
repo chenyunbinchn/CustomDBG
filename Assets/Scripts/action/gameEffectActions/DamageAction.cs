@@ -4,20 +4,18 @@ using enums;
 using gameStates.transient;
 using UnityEngine;
 
-namespace action.cardEffectActions
+namespace action.gameEffectActions
 {
-    public sealed class ApplyStatusAction : GameAction
+    public sealed class DamageAction : GameAction
     {
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
-        public EnumCardStatusType StatusType;
         public int Value;
         public EnumTargetType TargetType;
         public EnemyInstance Target;
 
-        public ApplyStatusAction(EnumCardStatusType statusType, int value, EnumTargetType targetType, EnemyInstance target, ActionId id, EnumActionStatus actionStatus)
+        public DamageAction(int value, EnumTargetType targetType, EnemyInstance target, ActionId id, EnumActionStatus actionStatus)
         {
-            StatusType = statusType;
             Value = value;
             TargetType = targetType;
             Target = target;
@@ -27,8 +25,9 @@ namespace action.cardEffectActions
 
         public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
-            Debug.Log($"[ApplyStatusAction] StatusType = {StatusType}, Value = {Value}");
+            Debug.Log($"[DamageAction] Start, Value = {Value}");
             yield return null;
+            Debug.Log($"[DamageAction] End, Value = {Value}");
         }
     }
 }

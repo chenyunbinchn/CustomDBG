@@ -3,24 +3,26 @@ using enums;
 using gameStates.transient;
 using UnityEngine;
 
-namespace action.cardEffectActions
+namespace action.gameEffectActions
 {
-    public sealed class DrawCardAction : GameAction
+    public sealed class ExhaustCardAction : GameAction
     {
+        public EnumTargetType TargetType;
+        public int[] CardIndexArray;
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
-        public int Value;
 
-        public DrawCardAction(int value, ActionId id, EnumActionStatus actionStatus)
+        public ExhaustCardAction(EnumTargetType targetType, int[] cardIndexArray, ActionId id, EnumActionStatus actionStatus)
         {
-            Value = value;
+            TargetType = targetType;
+            CardIndexArray = cardIndexArray;
             Id = id;
             ActionStatus = actionStatus;
         }
 
         public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
-            Debug.Log($"[DrawCardAction] Value = {Value}");
+            Debug.Log($"[ExhaustCardAction] TargetType = {TargetType}");
             yield return null;
         }
     }

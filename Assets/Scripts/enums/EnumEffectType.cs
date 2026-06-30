@@ -1,6 +1,6 @@
 ﻿namespace enums
 {
-    public enum EnumCardEffectType
+    public enum EnumEffectType
     {
         None = 0,
         CostEnergy,
