@@ -1,5 +1,5 @@
 ﻿using System;
-using cards.effects;
+using cards.authoring;
 using enums;
 using UnityEngine;
 

@@ -1,5 +1,5 @@
 ﻿using System.Collections.Generic;
-using cards.effects;
+using cards.authoring;
 using gameEffects;
 using tools.assert;
 using UnityEngine;

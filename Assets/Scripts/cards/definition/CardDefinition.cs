@@ -1,4 +1,4 @@
-﻿using cards.effects;
+﻿using cards.authoring;
 using enums;
 using gameEffects;
 

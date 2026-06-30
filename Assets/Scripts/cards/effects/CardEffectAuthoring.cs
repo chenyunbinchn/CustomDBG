@@ -2,7 +2,7 @@
 using enums;
 using gameEffects;
 
-namespace cards.effects
+namespace cards.authoring
 {
     [Serializable]
     public struct CardEffectAuthoring
