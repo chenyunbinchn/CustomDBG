@@ -11,11 +11,11 @@ namespace cards.definition
         // Note: Importing UnityEngine, but looks OK to me since we are now using Unity
         private Dictionary<CardDefinitionId, Sprite> _cardImages = new Dictionary<CardDefinitionId, Sprite>(); 
 
-        public void Init(CardDefinitionLibrary library) // Note: Maybe someday we can support mods, so can pass in multiple libraries.
+        public void Init(CardDefinitionLibrarySO librarySo) // Note: Maybe someday we can support mods, so can pass in multiple libraries.
         {
             _cards.Clear();
             _cardImages.Clear();
-            LoadFromLibrary(library);
+            LoadFromLibrary(librarySo);
         }
         
         public Sprite GetImage(CardDefinitionId id)
@@ -43,9 +43,9 @@ namespace cards.definition
             return result;
         }
 
-        private void LoadFromLibrary(CardDefinitionLibrary library)
+        private void LoadFromLibrary(CardDefinitionLibrarySO librarySo)
         {
-            foreach (CardDefinitionAuthoring so in library.definitionSOs)
+            foreach (CardDefinitionAuthoring so in librarySo.definitionSOs)
             {
                 MyAssert.Assert(so.effectAuthoringArray.Length > 0, 
                     "so.effectAuthoringArray.Length <= 0, can not load! Check CardDefinitionLibrary!");

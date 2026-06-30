@@ -1,9 +1,10 @@
 ﻿using System.Collections.Generic;
 using cards.instance;
+using UnityEngine;
 
 namespace gameStates.transient
 {
-    public class BattleCardPileState
+    public class BattlePlayerState
     {
         // Note: Copy deck from PlayerState when initialing. 
         public CardPileManager PileManager = new CardPileManager();
@@ -13,7 +14,8 @@ namespace gameStates.transient
         public List<CardInstanceId> HandCards = new List<CardInstanceId>();
         public List<CardInstanceId> DiscardPile = new List<CardInstanceId>();
         public List<CardInstanceId> PlayPile = new List<CardInstanceId>();
-
+        
+        public int PlayerEnergy;
         
         public void Reset()
         {
@@ -39,6 +41,7 @@ namespace gameStates.transient
             {
                PlayPile.Clear();
             }
+            Debug.Log("[Pile] Reset -> all piles cleared (Draw/Hand/Discard/Play/Exhaust)");
         }
     }
 }

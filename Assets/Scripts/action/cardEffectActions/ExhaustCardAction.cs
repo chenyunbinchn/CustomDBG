@@ -20,7 +20,7 @@ namespace action.cardEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute(BattleContext context)
+        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
             Debug.Log($"[ExhaustCardAction] TargetType = {TargetType}");
             yield return null;

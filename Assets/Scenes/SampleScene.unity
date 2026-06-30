@@ -369,7 +369,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 341577d0cbdf4936b769908d79aeca61, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::mono.UnityBoostrap
-  AllCardLibrary: {fileID: 11400000, guid: a3ffb8e49c17bd64c8bfc26a744319cf, type: 2}
+  allCardLibrarySo: {fileID: 11400000, guid: a3ffb8e49c17bd64c8bfc26a744319cf, type: 2}
 --- !u!4 &1729095521
 Transform:
   m_ObjectHideFlags: 0

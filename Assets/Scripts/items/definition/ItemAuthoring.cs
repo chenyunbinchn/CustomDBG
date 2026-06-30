@@ -1,6 +1,6 @@
 ﻿namespace items
 {
-    public class IteamAuthoring
+    public class ItemAuthoring
     {
         
     }

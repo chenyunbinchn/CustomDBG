@@ -10,7 +10,7 @@ namespace action
         public override ActionId Id { get; }
         public override EnumActionStatus ActionStatus { get; set; }
 
-        public override IEnumerator Execute(BattleContext context)
+        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
             Debug.Log($"[DiscardHandCardAction] Execute");
             yield return null;

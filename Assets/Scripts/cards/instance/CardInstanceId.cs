@@ -2,7 +2,7 @@
 
 namespace cards.instance
 {
-    public readonly struct CardInstanceId : IEquatable<CardInstanceId>
+    public readonly struct CardInstanceId : IEquatable<CardInstanceId>, IComparable<CardInstanceId>
     {
         public readonly uint Value;
 
@@ -44,6 +44,12 @@ namespace cards.instance
         public override int GetHashCode()
         {
             return (int)Value;
+        }
+
+        // Note: Total order by Value. Enables ShuffleHelper.StableShuffle (sort-then-shuffle).
+        public int CompareTo(CardInstanceId other)
+        {
+            return Value.CompareTo(other.Value);
         }
     }
 }

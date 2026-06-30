@@ -18,7 +18,7 @@ namespace action.cardEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute(BattleContext context)
+        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
             Debug.Log($"[GainEnergyAction] Value = {Value}");
             yield return null;

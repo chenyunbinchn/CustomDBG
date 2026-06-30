@@ -3,6 +3,11 @@
   生成日期：2026-06-11
 ========================================================================
 
+修订记录
+------------------------------------------------------------------------
+2026-06-11 初稿：分析不稳定洗牌的输入顺序依赖，给出 StableShuffle 方案与 STS2 对照
+2026-06-26 方案 B 落地：CardInstanceId 实现 IComparable、ShuffleHelper 新增 StableShuffle，更新 2.5 与结论
+
 1. 背景与引言
 ------------------------------------------------------------------------
 
@@ -90,12 +95,12 @@ Fisher-Yates 洗牌算法本身（为何降序遍历、上界为何取 i+1、原
   STS2 在抽牌堆重洗时正是调用它（CardPileCmd.Shuffle：
   list.StableShuffle(player.RunState.Rng.Shuffle)）。
 
-2.5 本项目的类型现状
+2.5 本项目的类型现状（2026-06-26 更新：已实现）
 
   来源：Assets/Scripts/cards/instance/CardInstanceId.cs
-  CardInstanceId 是 readonly struct，有 uint Value，实现了 IEquatable，
-  但【未实现】IComparable<CardInstanceId>。要套用 StableShuffle 需先补上
-  按 Value 的全序比较。
+  CardInstanceId 是 readonly struct，有 uint Value，实现了 IEquatable。
+  原先【未实现】IComparable<CardInstanceId>；方案 B 落地后已补上按 Value 的
+  全序比较（CompareTo 委托 uint.CompareTo），可直接套用 StableShuffle。
 
 ------------------------------------------------------------------------
 
@@ -128,6 +133,12 @@ Fisher-Yates 洗牌算法本身（为何降序遍历、上界为何取 i+1、原
 
 4. 结论
 ------------------------------------------------------------------------
+
+  【实现状态（2026-06-26）】已采用方案 B：CardInstanceId 实现
+  IComparable<CardInstanceId>；ShuffleHelper 新增 StableShuffle<T> where
+  T:IComparable<T>（内部 Sort 后调 Shuffle）；BattlePlayerState.BuildDrawPile
+  改调 StableShuffle 灌牌（来源 PileManager.Dictionary.Keys，遍历序不确定，
+  正是 StableShuffle 要消除的输入顺序依赖）。以下为原始决策论述。
 
 若本项目要落实方案 A 的输入回放（见回放报告结论），洗牌的"输入顺序
 依赖"必须被处理，二选一：

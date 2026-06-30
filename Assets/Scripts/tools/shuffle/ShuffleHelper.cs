@@ -23,7 +23,23 @@ namespace tools.shuffle
                 (list[i], list[j]) = (list[j], list[i]);
             }
         }
-        
-        // Todo: Implement StableShuffle, sort the list first to prevent same seed, different input cause different result.
+
+        // Stable Fisher-Yates: sort the list into a canonical order first, so the result depends only
+        // on {set contents, RNG stream}, not on the input order. Use this when the input order is not
+        // guaranteed (e.g. ids coming from a Dictionary/HashSet enumeration). T must define a total
+        // order via IComparable<T>. See 260611-report-shuffle-determinism.
+        public static void StableShuffle<T>(IList<T> list, Func<int, int> nextIntExclusive) where T : IComparable<T>
+        {
+            MyAssert.Assert(list != null, "list must not be null");
+
+            List<T> sorted = new List<T>(list);
+            sorted.Sort();
+            for (int i = 0; i < list.Count; i++)
+            {
+                list[i] = sorted[i];
+            }
+
+            Shuffle(list, nextIntExclusive);
+        }
     }
 }

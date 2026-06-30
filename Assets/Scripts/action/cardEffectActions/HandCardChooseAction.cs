@@ -23,7 +23,7 @@ namespace action.cardEffectActions
             CardIndex = cardIndex;
         }
 
-        public override IEnumerator Execute(BattleContext context)
+        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
             // Todo: ShowChooseCardUI();
             ActionStatus = EnumActionStatus.GatheringPlayerChoice;
