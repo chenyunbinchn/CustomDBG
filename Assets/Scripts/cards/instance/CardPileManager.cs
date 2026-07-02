@@ -39,7 +39,7 @@ namespace cards.instance
         public string DescribeCard(CardInstanceId id)
         {
             bool found = Dictionary.TryGetValue(id, out CardInstance card);
-            return found ? $"{card.Definition.Id.Name}#{id.Value}" : $"?#{id.Value}";
+            return found ? $"{card.DefinitionId.Name}#{id.Value}" : $"?#{id.Value}";
         }
 
         // Note: Debug-friendly listing of a pile, e.g. "[攻击#3, 防御#1]".

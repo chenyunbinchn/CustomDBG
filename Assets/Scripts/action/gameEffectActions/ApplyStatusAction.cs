@@ -30,5 +30,6 @@ namespace action.gameEffectActions
             Debug.Log($"[ApplyStatusAction] StatusType = {StatusType}, Value = {Value}");
             yield return null;
         }
+        
     }
 }

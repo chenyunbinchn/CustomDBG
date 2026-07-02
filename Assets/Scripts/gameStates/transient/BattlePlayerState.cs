@@ -1,10 +1,11 @@
 ﻿using System.Collections.Generic;
 using cards.instance;
+using hook;
 using UnityEngine;
 
 namespace gameStates.transient
 {
-    public class BattlePlayerState
+    public class BattlePlayerState : IHookListener
     {
         // Note: Copy deck from PlayerState when initialing. 
         public CardPileManager PileManager = new CardPileManager();
@@ -13,8 +14,8 @@ namespace gameStates.transient
         public List<CardInstanceId> ExhaustedPile = new List<CardInstanceId>();
         public List<CardInstanceId> HandCards = new List<CardInstanceId>();
         public List<CardInstanceId> DiscardPile = new List<CardInstanceId>();
-        public List<CardInstanceId> PlayPile = new List<CardInstanceId>();
-        
+
+        public List<HookListener> HookListeners { get; } = new List<HookListener>();
         public int PlayerEnergy;
         
         public void Reset()
@@ -37,11 +38,9 @@ namespace gameStates.transient
             {
                 DiscardPile.Clear();
             }
-            if (PlayPile.Count > 0)
-            {
-               PlayPile.Clear();
-            }
-            Debug.Log("[Pile] Reset -> all piles cleared (Draw/Hand/Discard/Play/Exhaust)");
+            HookListeners.Clear();
+            Debug.Log("[Pile] Reset -> all piles cleared (Draw/Hand/Discard/Exhaust)");
         }
+
     }
 }

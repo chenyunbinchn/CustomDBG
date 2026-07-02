@@ -97,11 +97,9 @@ namespace systems
 
         private static void TranslateEffect(GameActionManager actionManager, CardInstance instance, [CanBeNull] EnemyInstance target)
         {
-            CardDefinition cardDefinition = instance.Definition;
-
-            for (int i = 0; i < cardDefinition.Effects.Length; i++)
+            for (int i = 0; i < instance.Effects.Length; i++)
             {
-                Effect effect = cardDefinition.Effects[i];
+                Effect effect = instance.Effects[i];
                 GameAction action = null;
                 switch (effect.EffectType)
                 {

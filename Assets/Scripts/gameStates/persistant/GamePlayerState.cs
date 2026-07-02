@@ -1,13 +1,16 @@
-﻿using cards.definition;
+﻿using System.Collections.Generic;
+using cards.definition;
 using cards.instance;
+using hook;
 
 namespace gameStates.persistant
 {
-    public class GamePlayerState
+    public class GamePlayerState : IHookListener
     {
         public int[] Hps;
         public int[] EnergiesLimit;
         public int[] Golds;
+        public List<HookListener> HookListeners { get; }
         
         public CardDeckManager[] DeckManagers;
 
@@ -19,7 +22,7 @@ namespace gameStates.persistant
             Hps = new int[playerNum];
             EnergiesLimit = new int[playerNum];
             Golds = new int[playerNum];
-
+            
             for (int i = 0; i < playerNum; i++)
             {
                 Hps[i] = initHp;
@@ -37,5 +40,6 @@ namespace gameStates.persistant
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("剑柄打击"))); // Test
             }
         }
+
     }
 }
