@@ -5,7 +5,7 @@ using enums;
 namespace cards.instance
 {
     // Work for each game round
-    public class CardDeckManager
+    public class CardDeck
     {
         public List<CardInstance> Deck = new List<CardInstance>();
         private uint _index = 0; 

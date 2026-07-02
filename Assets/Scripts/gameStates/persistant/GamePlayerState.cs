@@ -1,36 +1,22 @@
-﻿using System.Collections.Generic;
-using cards.definition;
+﻿using cards.definition;
 using cards.instance;
-using hook;
+using player;
 
 namespace gameStates.persistant
 {
-    public class GamePlayerState : IHookListener
+    public class GamePlayerState
     {
-        public int[] Hps;
-        public int[] EnergiesLimit;
-        public int[] Golds;
-        public List<HookListener> HookListeners { get; }
+        public PlayerInfo[] PlayerInfos;
         
-        public CardDeckManager[] DeckManagers;
-
-        // Todo: So many field need to custom; Make CharacterScriptableObject and make multiple playerState instance instead? Only receive SO to initialize?
-        //       PlayerState[].
-        public void Init(CardDefinitionManager cardDefinitionManager, int playerNum, int initGold, int initHp, int initEnergy)
+        // Todo: Receive PlayerScriptableObject as para, instead of initGold, initHp, initEnergiesLimit ...
+        public void Init(CardDefinitionManager cardDefinitionManager, int playerNum, int initGold, int initHp, int initEnergiesLimit)
         {
-            DeckManagers = new CardDeckManager[playerNum];
-            Hps = new int[playerNum];
-            EnergiesLimit = new int[playerNum];
-            Golds = new int[playerNum];
+            PlayerInfos = new PlayerInfo[playerNum];
             
             for (int i = 0; i < playerNum; i++)
             {
-                Hps[i] = initHp;
-                EnergiesLimit[i] = initEnergy;
-                Golds[i] = initGold;
-
-                DeckManagers[i] = new CardDeckManager();
-                CardDeckManager curDeck = DeckManagers[i];
+                PlayerInfos[i] = new PlayerInfo(initHp, initEnergiesLimit, initGold);
+                CardDeck curDeck = PlayerInfos[i].CardDeck;
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test

@@ -38,9 +38,9 @@ namespace systems
             for (int i = 0; i < battlePlayerStates.Length; i++)
             {
                 battlePlayerStates[i].Reset();
-                battlePlayerStates[i].PileManager.CopyFromDeck(gamePlayerState.DeckManagers[i].Deck);
+                battlePlayerStates[i].PileManager.CopyFromDeck(gamePlayerState.PlayerInfos[i].CardDeck.Deck);
                 BattlePileApi.BuildDrawPile(battlePlayerStates[i], randomManager);
-                battlePlayerStates[i].PlayerEnergy = gamePlayerState.EnergiesLimit[i];
+                battlePlayerStates[i].PlayerEnergy = gamePlayerState.PlayerInfos[i].EnergiesLimit;
             }
         }
         
