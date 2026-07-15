@@ -6,5 +6,6 @@
         Weak,
         Vulnerable,
         Power,
+        Afterimage,
     }
 }

@@ -1,4 +1,5 @@
-﻿using gameEffects;
+﻿using enums;
+using gameEffects;
 
 namespace hook
 {
@@ -6,5 +7,6 @@ namespace hook
     {
         public IHookListener Host;
         public Effect Effect;
+        public EnumHookType Hook;
     }
 }

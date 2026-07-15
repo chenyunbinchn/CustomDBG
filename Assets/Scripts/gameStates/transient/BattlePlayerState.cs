@@ -1,11 +1,13 @@
 ﻿using System.Collections.Generic;
 using cards.instance;
+using combat;
+using enums;
 using hook;
 using UnityEngine;
 
 namespace gameStates.transient
 {
-    public class BattlePlayerState : IHookListener
+    public class BattlePlayerState : ICombatActor
     {
         // Note: Copy deck from PlayerState when initialing. 
         public CardPileManager PileManager = new CardPileManager();
@@ -17,6 +19,11 @@ namespace gameStates.transient
 
         public List<HookListener> HookListeners { get; } = new List<HookListener>();
         public int PlayerEnergy;
+
+        public int Hp { get; set; }
+        public int Block { get; set; }
+        // Note: single-player defaults to Player #0. Todo: StateManager assigns per-player index for multiplayer.
+        public ActionEntityId Id { get; set; } = new ActionEntityId(EnumEntityType.Player, 0);
         
         public void Reset()
         {

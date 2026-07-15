@@ -126,7 +126,7 @@ line numbers), not in memory or recollection of how a system "usually" works.
   knowledge may a report rely on unverified recollection.
 
 ### Report revision log
-Every report carries a 修订记录 block right under the title. On every change
+Every report carries a revision-log block right under the title. On every change
 (create or edit), add one line: `YYYY-MM-DD <one-sentence description of the change>`.
 - First creation logs the initial draft; later edits append a new dated line.
 - Keep each line to a single sentence summarizing what changed.
@@ -141,20 +141,19 @@ Keep each report small and focused — one report covers ONE topic/direction, no
 
 ## Task Management
 
-Task location: kcg-game/b1.tasks/
-Task format: YYMMDD.task-NNN.description.pending/
-Status: .pending → .active → .done (or .blocked, .obsolete)
+Task location: Documentation/tasks/ (see the Documentation Structure section).
+Task format: YYMMDD-task-{description}.txt — a plain .txt like a report, with a
+revision-log block and a Status line in the title block.
+Status values: pending / active / done (or blocked / obsolete).
 
-### Task status updates
-- .pending → .active: When picking a task to work on (reserves it so other devs won't pick it)
-- .active → .done: When creating a PR (work is complete, PR is the deliverable)
-- If PR is not merged, revert to .pending or .active as appropriate
-
-When creating a PR for a task:
-1. Rename folder from .active (or .pending) to .done
-2. Update Status line in spec to: done (PR #NNNN) - include PR number or link
-3. Include the rename in the same commit as the code changes
-4. Verify Status line is updated BEFORE committing (not left as "active" or "pending")
+### Task status
+- Status lives in the Status line inside the task file's title block, NOT in the
+  filename — this project has no .pending/.active/.done folders.
+- pending → active: when you pick a task to work on.
+- active → done: when the work is delivered (e.g. a PR is opened, or the change lands);
+  if a PR is opened, put its number/link on the Status line.
+- If the work is reverted / unmerged, set Status back to pending or active as appropriate.
+- Update the Status line (and append a revision-log line) in the same commit as the code change.
 
 ## Design Discussion Rules
 

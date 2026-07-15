@@ -1,5 +1,8 @@
 ﻿using cards.definition;
+using enums;
 using gameStates;
+using gameStates.transient;
+using hook;
 using systems;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -48,7 +51,18 @@ namespace mono
             {
                 BattlePileApi.DrawCards(StateManager.BattlePlayerStates[0], 3, StateManager.GameState.RandomManager);
             }
-            
+
+            if (Keyboard.current.eKey.wasPressedThisFrame)
+            {
+                // Test: apply the Afterimage status via the registry (after each card played, +2 block).
+                BattlePlayerState player = StateManager.BattlePlayerStates[0];
+                if (StatusRegistry.TryGetTemplate(EnumStatusType.Afterimage, out HookListener template))
+                {
+                    player.HookListeners.Add(new HookListener { Host = player, Hook = template.Hook, Effect = template.Effect });
+                    Debug.Log($"[Test] Applied Afterimage. Listeners={player.HookListeners.Count}, Block={player.Block}");
+                }
+            }
+
         }
     }
 }

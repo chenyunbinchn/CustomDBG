@@ -59,3 +59,17 @@ MonoBehaviour:
       value: 1
     description: "\u5BF9\u4E00\u540D\u654C\u4EBA\u9020\u6210 6 \u70B9\u4F24\u5BB3\uFF0C\u62BD\u4E00\u5F20\u724C"
     image: {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  - idName: "\u6B8B\u5F71"
+    cardType: 2
+    energyCost: 1
+    effectAuthoringArray:
+    - effectType: 1
+      targetType: 1
+      statusType: 0
+      value: 1
+    - effectType: 6
+      targetType: 1
+      statusType: 4
+      value: 1
+    description: "\u5BF9\u4E00\u540D\u654C\u4EBA\u9020\u6210 6 \u70B9\u4F24\u5BB3\uFF0C\u62BD\u4E00\u5F20\u724C"
+    image: {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
