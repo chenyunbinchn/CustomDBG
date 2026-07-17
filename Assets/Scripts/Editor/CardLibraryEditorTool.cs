@@ -44,6 +44,32 @@ namespace editor
                             value = 2
                         }
                     }
+                },
+                new CardDefinitionAuthoring
+                {
+                    idName = "连斩",
+                    cardType = EnumCardType.Attack,
+                    energyCost = 1,
+                    description = "连续造成 2 次 4 点伤害。",
+                    image = null,
+                    effectAuthoringArray = new EffectAuthoring[]
+                    {
+                        // Note: cost is the energyCost field above (plan A) — do NOT put a CostEnergy effect here.
+                        new EffectAuthoring
+                        {
+                            effectType = EnumEffectType.DealDamage,
+                            targetType = EnumTargetType.SelectedEnemy,
+                            statusType = EnumStatusType.None,
+                            value = 4
+                        },
+                        new EffectAuthoring
+                        {
+                            effectType = EnumEffectType.DealDamage,
+                            targetType = EnumTargetType.SelectedEnemy,
+                            statusType = EnumStatusType.None,
+                            value = 4
+                        }
+                    }
                 }
                 // Add more test cards here — they will be added or replaced by idName.
             };

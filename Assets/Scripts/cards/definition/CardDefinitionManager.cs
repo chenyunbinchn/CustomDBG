@@ -57,7 +57,7 @@ namespace cards.definition
                 }
 
                 CardDefinitionId newId = new CardDefinitionId(so.idName);
-                CardDefinition definition = new CardDefinition(newId, so.cardType, effects, so.description);
+                CardDefinition definition = new CardDefinition(newId, so.cardType, so.energyCost, effects, so.description);
                 
                 _cards.Add(newId, definition);
                 _cardImages.Add(newId, so.image);

@@ -70,15 +70,7 @@ namespace systems
                 return EnumPlayCardResult.CardNotInHand;
             }
 
-            int cost = 0;
-            for (int i = 0; i < cardInstance.Effects.Length; i++)
-            {
-                if (cardInstance.Effects[i].EffectType == EnumEffectType.CostEnergy)
-                {
-                    cost += cardInstance.Effects[i].Value;
-                }
-            }
-            if (cost > player.PlayerEnergy)
+            if (cardInstance.EnergyCost > player.PlayerEnergy)
             {
                 return EnumPlayCardResult.NotEnoughEnergy;
             }
@@ -99,6 +91,11 @@ namespace systems
             BattlePlayerState player = (BattlePlayerState)EntityApi.Resolve(command.Player, battleState);
             CardInstance cardInstance = player.PileManager.Dictionary[command.Card];
 
+            // Note: Energy cost is a card field (plan A). Synthesize the CostEnergyAction from it and queue
+            //       it FIRST (pay to play, then effects resolve). The card's Effects never hold a CostEnergy
+            //       effect. See 《260717-rule-multiplayer-battle-model》 §4-2 (cost is action-ified, not a
+            //       direct mutation in this command function).
+            actionManager.Add(new CostEnergyAction(cardInstance.EnergyCost, actionManager.NextId(), EnumActionStatus.WaitingForExecution));
             for (int i = 0; i < cardInstance.Effects.Length; i++)
             {
                 EffectApi.Translate(cardInstance.Effects[i], command.Player, command.Target, actionManager);
