@@ -1,4 +1,5 @@
 ﻿using action;
+using combat;
 using enums;
 using random;
 using UnityEngine;
@@ -11,6 +12,7 @@ namespace gameStates.persistant
         public SeedManager SeedManager = new SeedManager();
         public RandomManager RandomManager = new RandomManager();
         public GameActionManager GameActionManager = new GameActionManager();
+        public BattleCommandManager BattleCommandManager = new BattleCommandManager();
         public ActionExecutor ActionExecutor;
         
         public bool IsInBattle = false;
