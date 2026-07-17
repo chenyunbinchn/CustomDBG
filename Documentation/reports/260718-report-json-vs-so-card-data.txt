@@ -1,0 +1,167 @@
+========================================================================
+  报告：用 JSON 替代 ScriptableObject 承载卡牌数据——改动一览
+  生成日期：2026-07-18
+========================================================================
+
+修订记录：
+  2026-07-18 初稿：基于当前 SO 加载链实代码，列出 SO→JSON 迁移要改的
+             全部代码点（按 A-F 分组、带文件路径+行号）、不需改的部分、
+             Sprite 引用这一真实成本、方案取舍与迁移步骤。
+
+依据：CardDefinitionLibrarySO / CardDefinitionManager / GameDefinitionState /
+      StateManager / UnityBoostrap / CardDefinitionAuthoring / EffectAuthoring
+      实代码（本报告 2 节逐一引用行号）；会话讨论（260717-260718）关于
+      "JSON 直读作为热更终态形态、直接走方案 C（运行时读 JSON）"。
+
+------------------------------------------------------------------------
+1. 背景与范围
+------------------------------------------------------------------------
+  目标：卡牌数据从 ScriptableObject 资产改为 JSON 文件承载。动机：改卡不
+  重编译、diff 干净、且 JSON 直读就是将来 Lua 热更/数据外置的终态形态
+  （对应 dota2-modifier-kv-architecture.md 里 KV↔JSON 的映射）。
+
+  关键判断（决定改动面很小）：本项目已是 Authoring→Definition→Instance
+  三层。SO 只是 Authoring 层的【投递方式】，不参与运行时。所以 SO→JSON
+  只动"Authoring 数据如何被加载"这一条缝，加上 Sprite 引用这一处真实成本；
+  Definition/Instance 运行时层一行不动。
+
+  本报告只回答"要改哪些代码"，不含 JSON schema 完整定义（那属实现细节）。
+
+------------------------------------------------------------------------
+2. 当前 SO 依赖面（迁移前的"有什么"）
+------------------------------------------------------------------------
+  2-1. 数据容器（SO 本体）
+    Assets/Scripts/cards/definition/CardDefinitionLibrarySO.cs:5-8 —
+      [CreateAssetMenu] 的 ScriptableObject，持有
+      `CardDefinitionAuthoring[] definitionSOs`。对应磁盘上一个 .asset（YAML）。
+
+  2-2. Authoring 数据结构（JSON 要镜像的形状）
+    Assets/Scripts/cards/definition/CardDefinitionAuthoring.cs:9-18 —
+      [Serializable] class：idName、cardType、energyCost、
+      effectAuthoringArray、description、**image(Sprite)**。
+    Assets/Scripts/gameEffects/authoring/EffectAuthoring.cs:6-18 —
+      [Serializable] struct：effectType、targetType、statusType、value。
+
+  2-3. 加载缝（唯一读 SO 的地方）
+    Assets/Scripts/cards/definition/CardDefinitionManager.cs:14-19,46-65 —
+      Init(CardDefinitionLibrarySO) → LoadFromLibrary 遍历
+      librarySo.definitionSOs，逐条 CreateRuntimeEffect 建 _cards，并把
+      so.image 存进 _cardImages（:63）。
+
+  2-4. 传参链（把 SO 类型从入口一路传到 manager）
+    Assets/Scripts/mono/UnityBoostrap.cs:15 —
+      `public CardDefinitionLibrarySO allCardLibrarySo;`（Inspector 里拖资产）。
+    UnityBoostrap.cs:21 → StateManager.Init(allCardLibrarySo, this, 4)。
+    Assets/Scripts/gameStates/StateManager.cs:22,27 —
+      Init(CardDefinitionLibrarySO librarySO) → GameDefinitionState.Init(librarySO)。
+    Assets/Scripts/gameStates/persistant/GameDefinitionState.cs:9-12 —
+      Init(CardDefinitionLibrarySO) → CardDefinitionManager.Init(...)。
+
+  2-5. Sprite 引用（真实成本，但当前无消费方）
+    CardDefinitionManager.cs:12,21-29,63 — _cardImages 字典 + GetImage(id)。
+    grep 全库：GetImage 无任何调用方，CardView.Bind（Assets/Scripts/ui/
+      CardView.cs:36）是空实现。→ Sprite 通路已建但尚未被消费，此刻迁移
+      代价最低；等 CardView 开始用图再迁则更麻烦。
+
+  2-6. SO 专用工具（编辑器）
+    Assets/Scripts/Editor/CardLibraryEditorTool.cs — 经 AssetDatabase
+      FindAssets/LoadAssetAtPath（:108-116）读 SO，AddCards（:81）改
+      definitionSOs 并 SaveAssets。这是 SO 专属工具。
+
+------------------------------------------------------------------------
+3. 需要改动的代码（按 A-F 分组）
+------------------------------------------------------------------------
+  A. 数据容器：SO 类 → 纯数据 DTO + JSON 文件
+     - 删 CardDefinitionLibrarySO : ScriptableObject，改为一个普通
+       [Serializable] DTO（如 CardLibraryData{ CardDefinitionAuthoring[]
+       cards }），供 JSON 反序列化。
+     - .asset → StreamingAssets/cards/*.json（明文，打包后仍可被热更覆盖）。
+
+  B. 加载缝：CardDefinitionManager.Init 换签名
+     - Init(CardDefinitionLibrarySO) → Init(CardLibraryData)（或 Init(string
+       json) 内部反序列化）。LoadFromLibrary 的循环体不变，只是遍历
+       data.cards 而非 librarySo.definitionSOs。改动量最小。
+
+  C. 传参链：把 SO 类型换成新来源（3 处签名 + 1 处字段）
+     - GameDefinitionState.Init、StateManager.Init 的参数类型
+       CardDefinitionLibrarySO → CardLibraryData / string path。
+     - UnityBoostrap.allCardLibrarySo（Sprite 拖引用的字段）删除；改为一个
+       JSON 相对路径字符串或直接在 Start 里读 StreamingAssets。
+
+  D. JSON 读取与反序列化（新增）
+     - 读文件：File.ReadAllText(Path.Combine(Application.streamingAssetsPath,
+       "cards/…json"))。注意 Android 上 StreamingAssets 要走
+       UnityWebRequest，非 File（若目标含安卓，此处要分平台）。
+     - 反序列化：用 Newtonsoft（com.unity.nuget.newtonsoft-json）+
+       StringEnumConverter，枚举走字符串（"DealDamage"）、拼错即抛异常；
+       不要用 UnityEngine.JsonUtility（枚举序列化成数字、不可读）。
+
+  E. Sprite 引用：Sprite → 名字/路径 + 运行时解析（见第 4 节）
+     - CardDefinitionAuthoring.image(Sprite) → string imageName。
+     - CardDefinitionManager.cs:63 的 `so.image` → 按名字解析出 Sprite 再存
+       _cardImages（Resources.Load / 图集查表 / 名字→Sprite 字典资产）。
+
+  F. 编辑器工具：CardLibraryEditorTool 退役或改写
+     - JSON 直编即无需该工具（这正是 JSON 的收益）。CardLibraryEditorTool
+       的 AssetDatabase 读写代码删除；若想保留"批量生成/校验 JSON"能力，
+       改写成写 JSON 文件的工具即可（可复用其"按 idName 去重替换"逻辑）。
+
+  G. 校验（新增，替代 Inspector 的编辑期防错）
+     - SO 靠下拉框/拖拽在编辑期防错；JSON 是文本，改到 LoadFromLibrary 里
+       用 MyAssert 兜底：idName 唯一、枚举 parse 成功、value 合理、
+       effect 数组非空（现 CardDefinitionManager.cs:50 已断言）、imageName
+       能解析到 Sprite。数据错=启动崩，符合项目"crash on invalid data"。
+
+------------------------------------------------------------------------
+4. Sprite 引用——唯一的真实成本
+------------------------------------------------------------------------
+  JSON 表达不了 Unity 对象引用，这是 SO→JSON 唯一"损失"的能力。三个解法：
+    方案 S1：sprite 放 Resources/，imageName 走 Resources.Load<Sprite>(name)。
+      优点：零额外资产、实现最短。缺点：Resources 全量打包、Unity 官方不
+      建议大量使用；改名即断链（靠 MyAssert 兜底报错）。
+    方案 S2：一个"名字→Sprite"的映射资产（一个小 SO 或图集），加载时查表。
+      优点：引用集中、可校验；缺点：又引入一个 SO（但只此一个，且是引擎
+      资源索引、不是玩法数据，性质不同）。
+    方案 S3：Addressables，imageName 作 address 异步加载。
+      优点：最适合将来热更/DLC；缺点：引入 Addressables 依赖、异步加载要
+      改 CardView 取图时序。
+  当前 GetImage 无消费方（2-5），此刻选任一方案都不牵动别处；建议先 S1
+  跑通，等真做资源热更再升 S3。
+
+------------------------------------------------------------------------
+5. 不需要改动的部分（界定工作量）
+------------------------------------------------------------------------
+  - 运行时三层：CardDefinition、CardInstance、CardDefinitionManager 的
+    _cards/Get/TryGet 全不动——运行时不关心 Authoring 从哪来。
+  - EffectAuthoring.CreateRuntimeEffect()（EffectAuthoring.cs:14-17）不动。
+  - Authoring 字段形状（除 image→imageName 外）不动：JSON 反序列化进的是
+    同一组字段。CardDefinitionAuthoring 的 [SerializeField] 属性对 Newtonsoft
+    无影响，可保留或清理。
+  - 出牌/费用/action/hook 等玩法链全不动（本次方案 A 费用重构与本迁移正交）。
+
+------------------------------------------------------------------------
+6. 迁移步骤（一次性）
+------------------------------------------------------------------------
+  6-1. 把现有 .asset 里的卡导出成 JSON：写个一次性编辑器脚本读现 SO、
+       JsonConvert.SerializeObject 落盘（或卡少直接手写）。
+  6-2. 加 Newtonsoft 包、建 CardLibraryData DTO、改 Init 链（A/B/C/D）。
+  6-3. 迁 Sprite（E/S1）。
+  6-4. 删 CardDefinitionLibrarySO 与 CardLibraryEditorTool（F）。
+  6-5. LoadFromLibrary 补校验（G）。
+
+------------------------------------------------------------------------
+7. 联机备忘（不影响本迁移，记录以免遗漏）
+------------------------------------------------------------------------
+  卡牌数据是静态内容、各端相同加载，JSON 不影响确定性。但对局握手时应
+  校验各端卡数据同版本（如 JSON 内容 hash）——否则"连斩"在主机是 4 伤、
+  客户端是 5 伤会导致 desync。此条属联机清单，非本迁移工作。
+
+------------------------------------------------------------------------
+8. 结论
+------------------------------------------------------------------------
+  SO→JSON 的改动面小且集中：一条加载缝（Init 链 4 文件换签名）+ JSON 读取
+  反序列化（新增，用 Newtonsoft）+ Sprite 名字化（唯一真成本，当前无消费方
+  故最廉价）+ 删两个 SO 相关文件 + 补 MyAssert 校验。运行时三层与玩法链
+  零改动。建议顺序：先 Newtonsoft+DTO+Init 链跑通纯数据，再迁 Sprite（S1），
+  最后删 SO 与工具。
+========================================================================
