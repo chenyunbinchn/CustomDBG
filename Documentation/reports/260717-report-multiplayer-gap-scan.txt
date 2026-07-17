@@ -1,0 +1,299 @@
+========================================================================
+  报告：多人支持差距扫描——全库单人假设清单（listen server 前提）
+  生成日期：2026-07-17
+========================================================================
+
+修订记录：
+  2026-07-17 初稿：确定 listen server 拓扑后（已写入 CLAUDE.md），扫描
+             Assets/Scripts 全部代码，列出 15 条单人假设/多人风险（分六
+             类，带文件路径+行号），附已经多人 ready 的部分与分类改造
+             方向。
+  2026-07-17 记录用户决策：3.1 选方案 B 且玩家标识统一用 ActionEntityId
+             （EnumPlayerIndex 已删除）；3.5 定单共享队列；3.6 倾向方案
+             A 已在 CardDeck/CardPileManager 加 Todo；3.7 定方案 A；3.8
+             定同时行动制并增补"命令串行结算到稳定点"模型。
+  2026-07-17 实施改造 ①②：1-1/1-2 修复（StateManager.Init 赋玩家 Id、
+             BattleState.Players、EntityApi.Resolve 按编号索引）；3-1
+             修复（BattleCommand/BattleCommandManager/BattleCommandApi
+             命令化，串行 Pump，PlayedCardToDiscardAction，CanPlayCard
+             双用校验，CostEnergy/GainEnergy 真实现）；3-2 的 W 键测试
+             输入命令化；规则固化为
+             《260717-rule-multiplayer-battle-model》。
+
+------------------------------------------------------------------------
+
+1. 背景与引言
+------------------------------------------------------------------------
+
+  联机已定为硬需求，拓扑已定为 listen server：一名玩家作主机，主机进程
+  同时跑权威模拟与自己的本地客户端，其余玩家为纯客户端，无专用服务器；
+  主机自己的输入也必须走与远端玩家相同的命令入口（见 CLAUDE.md 首段，
+  2026-07-17 更新）。玩法形式（co-op / versus）未定。
+
+  本报告是一次全库扫描：把当前代码里所有【只支持单人 / 写死玩家 0 /
+  单玩家上下文】的代码点列成清单，作为后续多人化改造的依据。每条给出
+  文件路径+行号与"多人下为什么不成立"。本报告只做清单与方向；出牌命令
+  化（PlayCardCommand）的详细设计、回合结构设计各自单独成 task/report。
+
+  扫描范围：Assets/Scripts 下全部 76 个 .cs 文件（本分支工作区状态，
+  含未提交修改；hook/HookSystem.cs 已删除待重写）。
+
+------------------------------------------------------------------------
+
+2. 代码分析：单人假设清单（15 条，分六类）
+------------------------------------------------------------------------
+
+  【一类：玩家身份缺失或写死（3 条）——多人下直接错】
+
+  1-1. 全部 BattlePlayerState.Id 都是 Player#0。
+    Assets/Scripts/gameStates/transient/BattlePlayerState.cs:26 —
+      `Id = new ActionEntityId(EnumEntityType.Player, 0)`（字段初始化）。
+    Assets/Scripts/gameStates/StateManager.cs:28-32 — Init 创建
+      PlayerNum 个 BattlePlayerState，但没有任何一处按下标改写 Id。
+    后果：4 个玩家实例的 ActionEntityId 完全相同，EntityApi.Resolve、
+    将来的 HookEvent.Source 比较、命令的 Player 字段全都无法区分玩家。
+
+  1-2. EntityApi.Resolve 的 Player 分支忽略玩家编号。
+    Assets/Scripts/combat/EntityApi.cs:18-19 —
+      `case EnumEntityType.Player: return currentPlayer;`
+    不比较 id.Id，直接返回调用方传入的"当前玩家"。多人下"对 Player#2
+    结算伤害"会命中执行上下文里恰好在手的那个玩家。注释自带 Todo
+    （EntityApi.cs:13）。
+
+  1-3. EnumPlayerIndex 定义后全库 0 处使用。
+    Assets/Scripts/enums/EnumPlayerIndex.cs:3 — 定义 None/Player1-4；
+    grep 全库仅命中定义处 1 次。玩家编号目前在类型系统里没有落点
+    （ActionEntityId.Id 的 uint 即编号，该枚举与它的关系未定）。
+
+  【二类：action 执行链贯穿单玩家上下文（4 条）——多人下直接错】
+
+  2-1. GameAction.Execute 基类签名只携带 1 个玩家。
+    Assets/Scripts/action/GameAction.cs:11 —
+      `Execute(BattleState battleState, BattlePlayerState playerState)`。
+    全部 9 个子类（CostEnergy/GainEnergy/Damage/Draw/GainBlock/
+    ApplyStatus/Exhaust/DiscardHandCard/HandCardChoose）被迫继承
+    "世界里只有一个玩家"的上下文。
+
+  2-2. ActionExecutor 只携带 1 个 BattlePlayerState。
+    Assets/Scripts/action/ActionExecutor.cs:19,29 — Kick 与 Run 都收单个
+    playerState 并原样传给每条 action。单共享队列里混有多个玩家引发的
+    action 时，执行端无法为每条 action 提供正确的玩家。
+
+  2-3. 作用于玩家的 action 缺少目标玩家字段。
+    有目标字段的 3 个：DamageAction.Target、GainBlockAction、
+    ApplyStatusAction.Target（均为 ActionEntityId，见 EffectApi.Translate
+    的构造，Assets/Scripts/systems/EffectApi.cs:26-37）。
+    无目标字段的 4 个：CostEnergyAction（.cs:12 只有 Value）、
+    GainEnergyAction、DrawCardAction、DiscardHandCardAction —— 它们隐含
+    "当前玩家"。"玩家 2 抽 3 张牌"目前在数据上表达不出来。
+
+  2-4. HandCardChooseAction 等待本地输入，且不知道等谁。
+    Assets/Scripts/action/gameEffectActions/HandCardChooseAction.cs:26-32
+    — Execute 里 `WaitUntil(() => CardIndex >= 0)`，CardIndex 由外部直接
+    调 OnPlayerChose 写入。两个问题：无"等待哪个玩家选择"的字段；完成
+    条件是本地字段写入，而联机下远端玩家的选择是一条网络消息。
+
+  【三类：输入入口未命令化（3 条）——联机的输入通道缺失】
+
+  3-1. BattleApi.TryPlayCard / TryPlayHandCard 不是命令。
+    Assets/Scripts/systems/BattleApi.cs:34-35,53-54 — 参数是活对象引用
+    （BattlePlayerState、EnemyInstance? target），无出牌人字段；
+    BattleApi.cs:64-68 用 actionExecutor.IsRunning（表现层忙碌）拒绝出牌，
+    ActionExecutor.cs:21-24 在 IsRunning 时直接丢弃 Kick —— 远端命令到达
+    时本地在播动画就会被丢，两端状态分叉；
+    BattleApi.cs:46-47 — 打出的牌移入弃牌堆发生在 TryPlayCard 返回之后
+    的调用方里，状态修改跨出了"一条命令 = 一个封闭修改单元"的边界。
+
+  3-2. UnityBoostrap 的输入 3 处写死 BattlePlayerStates[0]，人数写死 4。
+    Assets/Scripts/mono/UnityBoostrap.cs:20（playerNum=4，Todo 房间人数）、
+    :40（TryPlayHandCard）、:52（DrawCards）、:58（挂 Afterimage）。
+    本地输入直接调 BattleApi / BattlePileApi / 直接 Add HookListener，
+    没有统一的命令提交点。
+
+  3-3. UI 层没有"本地玩家编号"概念。
+    Assets/Scripts/ui/CardView.cs 目前是纯表现（拖拽/悬停/归位），尚未
+    接出牌逻辑；接入时需要 local player index（本机这台客户端操控几号
+    玩家），当前隐含永远是 0。
+
+  【四类：回合结构（1 条）——多人回合规则无处落脚】
+
+  4-1. BattleState.IsPlayerTurn 是单个 bool。
+    Assets/Scripts/gameStates/transient/BattleState.cs:12。没有"轮到哪个
+    玩家"（versus 轮流制需要）也没有"回合阶段 + 各玩家就绪标记"（co-op
+    同时行动需要）。命令的权威校验（"是不是你的回合"）依赖这块。
+
+  【五类：Id 唯一性与种子（3 条）——边界风险/待决，不是立刻坏】
+
+  5-1. CardInstanceId 只在单个玩家范围内唯一。
+    Assets/Scripts/cards/instance/CardDeck.cs:21-25 — 每副牌各自的
+    _index 从 1 递增；Assets/Scripts/cards/instance/CardPileManager.cs:28
+    — AddCard 用各自 _maxIndex。4 个玩家各自都有"攻击#1"。当前所有查找
+    都限定在玩家自己的 PileManager.Dictionary 里，不冲突；但跨玩家引用
+    卡的场合（网络消息、回放日志、"把我的牌给队友"类效果）一旦出现，
+    CardInstanceId 不带玩家限定就是歧义。（曾有的全局
+    Assets/Scripts/ids/IdGenerator.cs 已在本分支删除。）
+
+  5-2. ActionId 由 GameActionManager 的私有计数生成，队列归属未决。
+    Assets/Scripts/action/GameActionManager.cs:12-18 — 注释里自带 Todo：
+    多人用单共享队列还是每玩家一个 GameActionManager。若定为单共享队列
+    （见 3.5 节），此条自动无冲突；若每玩家一队列则 ActionId 撞号。
+
+  5-3. 种子写死且没有分发机制。
+    Assets/Scripts/gameStates/persistant/GameState.cs:21 —
+    SeedManager.Init(41u)。联机下 MainSeed 必须由主机生成、放进对局
+    初始化消息发给所有客户端；客户端绝不能自己生成。
+
+  【六类：确定性前提（1 条）——风险提示，不是缺陷】
+
+  6-1. RandomManager 的 5 个随机域是全局共享流。
+    Assets/Scripts/random/RandomManager.cs:8-18 — shuffle/monster_ai/
+    map_gen/item/loot_drop_card 各一个 System.Random，全体玩家共用。
+    玩家 A 的一次洗牌会消耗 shuffle 流，从而改变玩家 B 下一次洗牌的
+    结果序列。在"主机单点模拟、客户端只收结果"下没有正确性问题；若走
+    "主机广播命令、各端各自模拟"，则要求全端以完全相同的顺序执行所有
+    玩家的操作（现有 CLAUDE.md 的确定性要求覆盖此点）。另有"每玩家
+    独立域"的设计选项，见 3.6。
+
+  【已经多人 ready 的部分（无需改动，列出防止误改）】
+
+  r-1. StateManager.PlayerNum 与 BattlePlayerStates[]（StateManager.cs:
+       10,18,28-32）：容器按人数建。
+  r-2. GamePlayerState.PlayerInfos[] 按 playerNum 初始化（
+       gameStates/persistant/GamePlayerState.cs:14-27）。
+  r-3. BattlePileApi 全部函数以 BattlePlayerState 为参数操作"这个玩家"
+       的牌堆，无隐含玩家（Assets/Scripts/systems/BattlePileApi.cs）。
+  r-4. HookApi.IterateHookListeners 按 PlayerNum 遍历全体玩家（
+       Assets/Scripts/hook/HookApi.cs:13-18）。
+  r-5. ActionEntityId {EnumEntityType Type; uint Id} 天然容纳 Player#N
+       （Assets/Scripts/combat/ActionEntityId.cs:9-18）。
+  r-6. BattleState 注释明确"shared by all players"（BattleState.cs:7）。
+
+------------------------------------------------------------------------
+
+3. 方案概览：分类改造方向
+------------------------------------------------------------------------
+
+  3.1 玩家身份（一类 1-1 ~ 1-3）
+    赋编号：StateManager.Init 的循环里
+      BattlePlayerStates[i].Id = new ActionEntityId(Player, (uint)i)，
+    一行改动。Resolve 需要拿到全部玩家，两个方案：
+    方案 A：EntityApi.Resolve 签名加 BattlePlayerState[] 参数。
+      优点：改动最小。缺点：每个调用方（每个 action.Execute）都要多
+      传一个参数，参数链继续变长。
+    方案 B：BattlePlayerState[] 挂进 BattleState（它本来注释就是
+      shared by all players），Resolve 只收 BattleState。
+      优点：战斗范围的状态自包含，全线签名收敛；BattlePlayerStates
+      本就是 transient，归属一致。缺点：StateManager 与 BattleState
+      各持一份引用，Reset 时要保证同步。
+    【已决策 2026-07-17】采用方案 B；玩家编号统一用 ActionEntityId
+    （EnumPlayerIndex 已从代码库删除）。
+
+  3.2 action 执行链（二类 2-1 ~ 2-3）
+    方案 A：Execute(BattleState)（BattleState 已含玩家数组），作用于
+      玩家的 action 一律自带 ActionEntityId Target，经 Resolve 找人。
+      优点：改动小、与 Damage/GainBlock/ApplyStatus 现状一致。
+      缺点：将来 action 需要随机数/入队新 action 时还要再改签名。
+    方案 B：Execute(BattleContext)，BattleContext 聚合
+      {BattleState, BattlePlayerState[], RandomManager,
+       GameActionManager}。
+      优点：签名只改这一次，hook 反应入队、抽牌重洗取随机都有出口。
+      缺点：上下文对象要新建并在 EnterBattle 时组装。
+    倾向 B（签名改动是全子类连锁，宜一次到位）。
+    无论 A/B：CostEnergy/GainEnergy/Draw/DiscardHandCard 四个 action
+    补 ActionEntityId Target 字段，EffectApi.Translate 对它们也走
+    ResolveTargetId（EffectApi.cs:20-31 现在不传 target）。
+
+  3.3 玩家选择输入（二类 2-4）
+    HandCardChooseAction 加 ActionEntityId ChoosingPlayer；完成条件从
+    "本地字段被写入"改为"收到该玩家的 ChooseCardCommand"——本地 UI 的
+    点击与远端网络消息汇合到同一条命令，与出牌命令同一套提交点。
+
+  3.4 输入命令化（三类 3-1 ~ 3-3）
+    结论沿用 2026-07-17 会话讨论：
+    - PlayCardCommand {ActionEntityId Player; CardInstanceId Card;
+      ActionEntityId Target} 纯值类型，即网络消息本身；
+    - 本地与远端同一提交点，主机无特权路径（已写入 CLAUDE.md）；
+    - CanPlayCard(state, cmd) 一个函数两用：UI 预检 + 执行前权威校验；
+    - executor 忙碌时命令排队等待，绝不丢弃；规则性拒绝（回合/能量）
+      才允许失败；
+    - UnityBoostrap 的键盘测试输入改为构造命令投进提交点（测试代码
+      成为最早的命令生产者）；
+    - 打出的牌移入弃牌堆收进命令执行内（action 化，缺一个"打出后归弃"
+      action 类型，与 DiscardHandCardAction 的"弃牌"语义区分）。
+    命令结构（单 struct+枚举 vs 每命令一类型）的取舍见会话结论：倾向
+    单 struct + EnumCommandType（与 Effect 先例一致，序列化单一路径）。
+
+  3.5 队列与 ActionId（五类 5-2）
+    采用单共享 ActionQueue：action 全局顺序=战斗事实顺序，回放与同步
+    都以它为准；每玩家队列需额外定义跨队列合并顺序，是自找复杂度。
+    定下后 GameActionManager.NextId 维持现状，删 Todo。
+    【已决策 2026-07-17】采用单共享队列，模拟全局战斗顺序。
+
+  3.6 Id 唯一性（五类 5-1）
+    方案 A：保持玩家范围 CardInstanceId，一切跨玩家引用强制带
+      ActionEntityId 玩家限定（网络消息/回放行 = Player+Card 二元组）。
+      优点：零迁移。缺点：每处跨玩家引用都要记得带限定，漏带即歧义。
+    方案 B：恢复全局 Id 生成（单一计数器挂 GameState 或专门管理类），
+      CardInstanceId 全局唯一。
+      优点：引用自包含，回放日志可读性好。缺点：计数器成为需要存档、
+      需要随对局初始化同步的状态。
+    不急于定：第一个跨玩家卡牌引用（效果或消息）出现时再选。
+    【已决策 2026-07-17】倾向方案 A，暂不实施；已在
+    CardDeck.GenerateId 与 CardPileManager.AddCard 加 Todo 注释。
+
+  3.7 随机与种子（五类 5-3、六类 6-1）
+    种子：对局初始化消息携带主机生成的 MainSeed，SeedManager.Init 收
+    它；41u 写死仅限本地测试。
+    随机域：
+    方案 A：维持全局共享域 + "全端同序执行"纪律。listen server 主机
+      单点模拟下自动满足，零改动。
+    方案 B：每玩家一套域（SeedManager 按玩家下标派生 shuffle_p0、
+      shuffle_p1 …）。玩家间随机隔离，断线重连/局部重放容易；代价是
+      域数量×人数、SeedManager 派生逻辑改造。
+    listen server 下 A 够用；若将来做客户端预测/局部重放再升 B。
+    【已决策 2026-07-17】采用方案 A（全局共享域 + 全端同序执行）。
+
+  3.8 回合结构（四类 4-1）
+    等玩法形式定，两个候选先记录：
+    - versus 轮流制：BattleState.CurrentPlayerIndex（int），命令校验
+      即"cmd.Player == CurrentPlayerIndex"。
+    - co-op 同时行动：EnumTurnPhase（玩家阶段/敌人阶段）+ 每玩家就绪
+      标记，玩家阶段内全员可出牌，全员就绪进敌人阶段。
+    命令化先落地时，CanPlayCard 里给回合校验留一个函数位即可。
+    【已决策 2026-07-17】采用同时行动制，并确立命令串行结算规则：
+    一条出牌命令的全部后果（展开的所有 GameAction，含执行中新产生
+    的）结算完毕、action 队列彻底为空（稳定点）之后，才执行下一条
+    命令。要点：
+    a) "全部执行完毕"的判定是 action 队列干涸，不是入队那一刻的
+       条数——action 执行中还会产生新 action（如将来 DamageAction
+       触发受伤 hook、反应再入队），条数是动态增长的。
+    b) 其他玩家的出牌命令在此期间【排队，不拒绝】：串行点在命令
+       队列的出口，不在入口；已提交的命令绝不丢弃。
+    c) 权威校验在命令轮到执行时做：前一条命令的结算可能改变本命令
+       的合法性（想打的牌被弃、能量被扣），非法则丢弃——各端状态
+       一致，丢弃结果也一致。
+    d) 例外：等待玩家选择的 action（HandCardChooseAction）挂起队列
+       时，该玩家的"选择命令"是喂给挂起 action 的输入、直接消费，
+       不受稳定点约束；其余玩家的出牌命令继续排队。联机下选择需要
+       超时（超时自动选/跳过），防一名玩家掉线卡死全场。
+    e) 同时行动 = 任意顺序的串行：主机按命令到达先后定序，不存在
+       "同一瞬间"，一切效果严格先后结算。
+
+------------------------------------------------------------------------
+
+4. 结论
+------------------------------------------------------------------------
+
+  单人假设集中在三处：玩家身份（全员 Player#0、Resolve 不看编号）、
+  action 执行链（单玩家上下文贯穿基类签名）、输入入口（未命令化、
+  写死玩家 0）。状态容器层（StateManager / GamePlayerState /
+  BattlePileApi / HookApi）已是多人形态，无需动。
+
+  建议顺序：
+  ① 赋玩家 Id + Resolve 多玩家化（1-1、1-2，改动最小、其余一切的
+    前提）；
+  ② 出牌命令化（3-1 ~ 3-3，联机输入通道的根）；
+  ③ action 执行链签名一次性改造（2-1 ~ 2-4）；
+  ④ 回合结构（4-1，等玩法形式）；
+  ⑤ Id/随机域（5-1、6-1）按"第一个用例出现时再定"处理。
+========================================================================

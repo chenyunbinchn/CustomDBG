@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Unity 6 (6000.4.9f1) 2D single-player deck-building roguelike (Slay-the-Spire-like).
+Unity 6 (6000.4.9f1) 2D deck-building roguelike (Slay-the-Spire-like). **Networked
+multiplayer is a hard requirement**, and the topology is decided: **listen server** —
+one player hosts and is the single authority; the host process runs the authoritative
+simulation plus its own local client, other players are pure clients, and there is no
+dedicated server. The host's own input must go through the same command entry point as
+remote players' (no host-privileged path that mutates authoritative state directly).
+Gameplay mode (co-op / versus) is still TBD; Lua hot-reload is under consideration. All battle state must therefore stay serializable
+and deterministic: plain data fields only (no delegates/callbacks stored in state), fixed
+iteration order, timing by turn/trigger counts (never `Time.time`), randomness only via
+`RandomManager`.
 The project is at an early, design-heavy stage: combat is still being designed and
 `systems/BattleSystem` is a skeleton. Design *rationale* lives as Chinese reports under
 `Documentation/reports/`, but the codebase is small — **read the code directly for what it
@@ -66,11 +75,12 @@ wraps a string name, `CardInstanceId` wraps a uint, `EnemyDefinitionId`…) with
 **Managers own collections and are the access point.** Lookups go through `Manager.Get(id)`,
 which `MyAssert`s on a miss rather than returning null.
 
-**Deterministic randomness (replay-critical).** `SeedManager` derives one seed per domain
+**Deterministic randomness (replay- and network-critical).** `SeedManager` derives one seed per domain
 (`shuffle`, `monster_ai`, `map_gen`, `item`, `loot_drop_card`) from a single `MainSeed`;
 `RandomManager` holds one `System.Random` + a call counter per domain. All gameplay
 randomness **must** go through the matching `RandomManager.<Domain>NextInt` — never
-`UnityEngine.Random` or an unseeded `Random` — so runs stay reproducible for replay.
+`UnityEngine.Random` or an unseeded `Random` — so runs stay reproducible for replay and
+consistent across networked clients.
 
 **`systems/` = stateless logic over state.** Systems (e.g. `BattleSystem`) receive state
 objects as parameters and mutate them; they hold no game data themselves ("systems do
