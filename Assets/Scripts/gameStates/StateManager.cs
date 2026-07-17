@@ -1,4 +1,6 @@
 ﻿using cards.definition;
+using combat;
+using enums;
 using gameStates.persistant;
 using gameStates.transient;
 using UnityEngine;
@@ -29,7 +31,10 @@ namespace gameStates
             for (int i = 0; i < PlayerNum; i++)
             {
                 BattlePlayerStates[i] = new BattlePlayerState();
+                BattlePlayerStates[i].Id = new ActionEntityId(EnumEntityType.Player, (uint)i);
             }
+            // Note: EntityApi.Resolve finds players by indexing this same array through BattleState.
+            BattleState.Players = BattlePlayerStates;
         }
     }
 }
