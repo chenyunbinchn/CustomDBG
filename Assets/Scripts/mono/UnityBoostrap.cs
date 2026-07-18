@@ -1,4 +1,4 @@
-﻿using cards.definition;
+﻿using System.IO;
 using combat;
 using enums;
 using gameStates;
@@ -12,13 +12,16 @@ namespace mono
 {
     public class UnityBoostrap : MonoBehaviour
     {
-        public CardDefinitionLibrarySO allCardLibrarySo;
+        [SerializeField] private string cardsJsonFileName = "cards.json";
         public StateManager StateManager = new StateManager();
-        
+
         private void Start()
         {
+            // Note: Card data is JSON under StreamingAssets (replaces the old ScriptableObject library).
+            //       Todo: Android / WebGL can't File.ReadAllText StreamingAssets — use UnityWebRequest there.
+            string cardsJson = File.ReadAllText(Path.Combine(Application.streamingAssetsPath, cardsJsonFileName));
             // Todo: Base on room's player number set playerNum
-            StateManager.Init(allCardLibrarySo, this, 4);
+            StateManager.Init(cardsJson, this, 4);
             Debug.Log("MainSeed: " + StateManager.GameState.SeedManager.MainSeed + "\n");
         }
 

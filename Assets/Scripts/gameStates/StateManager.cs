@@ -19,12 +19,12 @@ namespace gameStates
         public BattleState BattleState = new BattleState();
         public BattlePlayerState[] BattlePlayerStates;
         
-        public void Init(CardDefinitionLibrarySO librarySO, MonoBehaviour unityBoostrap, int playerNum)
+        public void Init(string cardsJson, MonoBehaviour unityBoostrap, int playerNum)
         {
             PlayerNum = playerNum;
             // Persistant States Init
             GameState.Init(unityBoostrap);
-            GameDefinitionState.Init(librarySO);
+            GameDefinitionState.Init(cardsJson);
             GamePlayerState.Init(GameDefinitionState.CardDefinitionManager, playerNum, 50, 100, 3);
             // Transient States
             BattlePlayerStates = new BattlePlayerState[PlayerNum];

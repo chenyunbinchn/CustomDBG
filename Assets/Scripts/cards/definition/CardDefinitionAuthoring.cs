@@ -1,19 +1,21 @@
-﻿using System;
+using System;
 using enums;
 using gameEffects.authoring;
-using UnityEngine;
 
 namespace cards.definition
 {
+    // Note: Designer-facing card data, deserialized from JSON (StreamingAssets/cards.json) by
+    //       CardDefinitionManager. Plain data — no Unity object refs (sprite is a name, resolved at load).
     [Serializable]
     public class CardDefinitionAuthoring
     {
         // Todo: Display name?
-        [SerializeField] public string idName;
-        [SerializeField] public EnumCardType cardType;
-        [SerializeField] public int energyCost;
-        [SerializeField] public EffectAuthoring[] effectAuthoringArray;
-        [SerializeField] public string description;
-        [SerializeField] public Sprite image;
+        public string idName;
+        public EnumCardType cardType;
+        public int energyCost;
+        public EffectAuthoring[] effectAuthoringArray;
+        public string description;
+        // Note: Sprite resolved by name at load (Resources.Load, plan S1). Empty = no art yet.
+        public string imageName;
     }
 }
