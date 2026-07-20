@@ -26,7 +26,7 @@ namespace action.gameEffectActions
 
         public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
-            ICombatActor target = EntityApi.Resolve(Target, battleState, playerState);
+            ICombatActor target = EntityApi.Resolve(Target, battleState);
             if (target != null && StatusRegistry.TryGetTemplate(StatusType, out HookListener template))
             {
                 // Hook-type status: attach a listener (host filled in here) copied from the registry template.

@@ -1,4 +1,5 @@
-﻿using cards.definition;
+﻿using System;
+using cards.definition;
 using cards.instance;
 using DG.Tweening;
 using TMPro;
@@ -6,98 +7,96 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-public class CardView : MonoBehaviour,
-    IPointerEnterHandler,
-    IPointerExitHandler,
-    IPointerDownHandler,
-    IPointerUpHandler,
-    IDragHandler
+namespace ui
 {
-    [SerializeField] private RectTransform root;
-    [SerializeField] private RectTransform visualRoot;
-    [SerializeField] private CanvasGroup canvasGroup;
-
-    [SerializeField] private TMP_Text nameText;
-    [SerializeField] private TMP_Text costText;
-    [SerializeField] private TMP_Text descriptionText;
-    [SerializeField] private Image artworkImage;
-
-    private CardInstanceId _instanceId;
-    private Vector2 _originalAnchoredPosition;
-    private bool _isDragging;
-
-    public void Bind(CardInstance instance, CardDefinition definition)
+    public class CardView : MonoBehaviour,
+        IPointerEnterHandler, IPointerExitHandler, IPointerUpHandler, 
+        IDragHandler, IBeginDragHandler, IEndDragHandler
     {
-        _instanceId = instance.Id;
+        [SerializeField] private RectTransform root;
+        [SerializeField] private RectTransform visualRoot;
+        [SerializeField] private Image artworkImage;
 
-        nameText.text = definition.Id.Name;
-        // costText.text = definition.Cost.ToString(); Todo: Trying to make cost as CardEffect. So it is easier to modify
-        descriptionText.text = definition.Description;
-        // artworkImage.sprite = definition.Artwork;
-    }
+        [SerializeField] private TMP_Text nameText;
+        [SerializeField] private TMP_Text costText;
+        [SerializeField] private TMP_Text descriptionText;
+        
+        private Canvas _canvas;
 
-    public void SetHandPosition(Vector2 position, float rotation)
-    {
-        root.DOAnchorPos(position, 0.25f);
-        root.DORotate(new Vector3(0f, 0f, rotation), 0.25f);
-    }
+        public event Action<CardView> OnDragEvent;
+        public event Action<CardView> EndDragEvent;
+        
+        private bool _isDragging;
 
-    public void OnPointerEnter(PointerEventData eventData)
-    {
-        if (_isDragging)
+        void Awake()
         {
-            return;
+            _canvas = GetComponentInParent<Canvas>();
+        }
+        
+        public void Bind(CardInstance instance, CardDefinition definition)
+        {
+
         }
 
-        visualRoot.DOKill();
-        visualRoot.DOAnchorPosY(30f, 0.12f);
-        visualRoot.DOScale(1.12f, 0.12f);
-    }
-
-    public void OnPointerExit(PointerEventData eventData)
-    {
-        if (_isDragging)
+        public void SetHandPosition(Vector2 position, float rotation)
         {
-            return;
+            root.DOAnchorPos(position, 0.25f);
+            root.DORotate(new Vector3(0f, 0f, rotation), 0.25f);
         }
 
-        visualRoot.DOKill();
-        visualRoot.DOAnchorPosY(0f, 0.12f);
-        visualRoot.DOScale(1f, 0.12f);
-    }
-
-    public void OnPointerDown(PointerEventData eventData)
-    {
-        _isDragging = true;
-        _originalAnchoredPosition = root.anchoredPosition;
-
-        root.DOKill();
-        visualRoot.DOKill();
-
-        visualRoot.DOScale(1.08f, 0.1f);
-        canvasGroup.alpha = 0.9f;
-    }
-
-    public void OnDrag(PointerEventData eventData)
-    {
-        root.anchoredPosition += eventData.delta;
-    }
-
-    public void OnPointerUp(PointerEventData eventData)
-    {
-        _isDragging = false;
-        canvasGroup.alpha = 1f;
-
-        bool canPlay = false; // Later ask CardPlaySystem.
-
-        if (canPlay)
+        public void OnPointerEnter(PointerEventData eventData)
         {
-            // cardPlaySystem.TryPlayCard(instanceId);
+            if (_isDragging)
+            {
+                return;
+            }
+
+            visualRoot.DOKill();
+            visualRoot.DOAnchorPosY(30f, 0.12f);
+            visualRoot.DOScale(1.12f, 0.12f);
         }
-        else
+
+        public void OnPointerExit(PointerEventData eventData)
         {
-            root.DOAnchorPos(_originalAnchoredPosition, 0.2f);
+            if (_isDragging)
+            {
+                return;
+            }
+
+            visualRoot.DOKill();
+            visualRoot.DOAnchorPosY(0f, 0.12f);
             visualRoot.DOScale(1f, 0.12f);
+        }
+
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            _isDragging = true;
+
+            root.DOKill();
+            visualRoot.DOKill();
+
+            visualRoot.DOScale(1.08f, 0.1f);
+        }
+
+        public void OnPointerUp(PointerEventData eventData)
+        {
+        }
+
+        public void OnBeginDrag(PointerEventData eventData)
+        {
+            OnDragEvent?.Invoke(this);
+            _isDragging = true;
+        }
+
+        public void OnEndDrag(PointerEventData eventData)
+        {
+            EndDragEvent?.Invoke(this);
+            _isDragging = false;
+        }
+
+        public void OnDrag(PointerEventData eventData)
+        {
+            visualRoot.anchoredPosition += eventData.delta / _canvas.scaleFactor;
         }
     }
 }

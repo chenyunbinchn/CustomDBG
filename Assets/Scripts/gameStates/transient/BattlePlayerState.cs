@@ -22,8 +22,9 @@ namespace gameStates.transient
 
         public int Hp { get; set; }
         public int Block { get; set; }
-        // Note: single-player defaults to Player #0. Todo: StateManager assigns per-player index for multiplayer.
-        public ActionEntityId Id { get; set; } = new ActionEntityId(EnumEntityType.Player, 0);
+        // Note: Assigned by StateManager.Init — ActionEntityId.Id == this player's index in
+        //       BattleState.Players / StateManager.BattlePlayerStates.
+        public ActionEntityId Id { get; set; }
         
         public void Reset()
         {

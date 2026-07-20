@@ -23,7 +23,7 @@ namespace action.gameEffectActions
 
         public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
-            ICombatActor target = EntityApi.Resolve(Target, battleState, playerState);
+            ICombatActor target = EntityApi.Resolve(Target, battleState);
             if (target != null)
             {
                 target.Hp -= Value;   // Todo: Block absorbs first, then Hp

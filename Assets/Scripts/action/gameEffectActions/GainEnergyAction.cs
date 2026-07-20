@@ -20,7 +20,8 @@ namespace action.gameEffectActions
 
         public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
-            Debug.Log($"[GainEnergyAction] Value = {Value}");
+            playerState.PlayerEnergy += Value;
+            Debug.Log($"[GainEnergyAction] +{Value} -> PlayerEnergy = {playerState.PlayerEnergy}");
             yield return null;
         }
     }

@@ -1,4 +1,4 @@
-﻿using cards.definition;
+using cards.definition;
 
 namespace gameStates.persistant
 {
@@ -6,9 +6,9 @@ namespace gameStates.persistant
     {
         public CardDefinitionManager CardDefinitionManager = new CardDefinitionManager();
 
-        public void Init(CardDefinitionLibrarySO cardDefinitionLibrarySo)
+        public void Init(string cardsJson)
         {
-            CardDefinitionManager.Init(cardDefinitionLibrarySo);
+            CardDefinitionManager.Init(cardsJson);
         }
     }
 }

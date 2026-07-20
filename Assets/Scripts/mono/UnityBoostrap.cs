@@ -1,4 +1,5 @@
-﻿using cards.definition;
+﻿using System.IO;
+using combat;
 using enums;
 using gameStates;
 using gameStates.transient;
@@ -11,18 +12,26 @@ namespace mono
 {
     public class UnityBoostrap : MonoBehaviour
     {
-        public CardDefinitionLibrarySO allCardLibrarySo;
+        [SerializeField] private string cardsJsonFileName = "cards.json";
         public StateManager StateManager = new StateManager();
-        
+
         private void Start()
         {
+            // Note: Card data is JSON under StreamingAssets (replaces the old ScriptableObject library).
+            //       Todo: Android / WebGL can't File.ReadAllText StreamingAssets — use UnityWebRequest there.
+            string cardsJson = File.ReadAllText(Path.Combine(Application.streamingAssetsPath, cardsJsonFileName));
             // Todo: Base on room's player number set playerNum
-            StateManager.Init(allCardLibrarySo, this, 4);
+            StateManager.Init(cardsJson, this, 4);
             Debug.Log("MainSeed: " + StateManager.GameState.SeedManager.MainSeed + "\n");
         }
 
         private void Update()
         {
+            // Note: The command pump — the ONLY place battle commands get executed. Runs at most one
+            //       command per frame, and only at quiescence (action queue drained).
+            BattleCommandApi.Pump(StateManager.GameState.BattleCommandManager, StateManager.BattleState,
+                StateManager.GameState.GameActionManager, StateManager.GameState.ActionExecutor);
+
             // Test code
             if (Keyboard.current == null)
             {
@@ -37,9 +46,17 @@ namespace mono
 
             if (Keyboard.current.wKey.wasPressedThisFrame)
             {
-                BattleApi.TryPlayHandCard(StateManager.BattleState, StateManager.BattlePlayerStates[0],
-                    StateManager.GameState.GameActionManager, StateManager.GameState.ActionExecutor,
-                    0, null);
+                // Note: Test input builds a BattleCommand like any client would — the keyboard is
+                //       just the earliest command producer. Plays player #0's first hand card.
+                BattlePlayerState player0 = StateManager.BattlePlayerStates[0];
+                if (player0.HandCards.Count > 0)
+                {
+                    ActionEntityId target = StateManager.BattleState.EnemyList.Count > 0
+                        ? StateManager.BattleState.EnemyList[0].Id
+                        : default;
+                    BattleCommand command = new BattleCommand(EnumCommandType.PlayCard, player0.Id, player0.HandCards[0], target);
+                    BattleCommandApi.Submit(command, StateManager.GameState.BattleCommandManager);
+                }
             }
 
             if (Keyboard.current.aKey.wasPressedThisFrame)

@@ -17,9 +17,10 @@ namespace systems
             GameAction action = null;
             switch (effect.EffectType)
             {
-                case EnumEffectType.CostEnergy:
-                    action = new CostEnergyAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
-                    break;
+                // Note: EnumEffectType.CostEnergy has NO branch — card cost is a card field (plan A),
+                //       synthesized into a CostEnergyAction by BattleCommandApi, never authored as an
+                //       effect. The enum value is kept (removing it would shift serialized enum ints in
+                //       the existing SO .asset). An authored CostEnergy effect hits the default assert.
                 case EnumEffectType.GainEnergy:
                     action = new GainEnergyAction(effect.Value, actionManager.NextId(), EnumActionStatus.WaitingForExecution);
                     break;
