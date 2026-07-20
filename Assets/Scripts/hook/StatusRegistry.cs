@@ -17,9 +17,12 @@ namespace hook
         {
             {
                 EnumStatusType.Afterimage,
+                // Note: Filter belongs in the template (it is part of what the status IS); Owner and Host
+                //       are filled in by ApplyStatusAction, which is the only place that knows who got it.
                 new HookListener
                 {
                     Hook = EnumHookType.AfterCardPlayed,
+                    Filter = EnumHookFilter.SelfIsSource,
                     Effect = new Effect(EnumEffectType.GainBlock, EnumTargetType.Self, EnumStatusType.None, 2)
                 }
             }

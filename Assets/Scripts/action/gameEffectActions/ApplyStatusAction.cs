@@ -29,11 +29,14 @@ namespace action.gameEffectActions
             ICombatActor target = EntityApi.Resolve(Target, battleState);
             if (target != null && StatusRegistry.TryGetTemplate(StatusType, out HookListener template))
             {
-                // Hook-type status: attach a listener (host filled in here) copied from the registry template.
+                // Hook-type status: copy the shared registry template into a NEW listener (never add the
+                //       template itself — it is shared by every actor). Host/Owner are filled in here
+                //       because this is the only place that knows who received the status.
                 target.HookListeners.Add(new HookListener
                 {
-                    Host = target,
+                    Owner = target.Id,
                     Hook = template.Hook,
+                    Filter = template.Filter,
                     Effect = template.Effect
                 });
                 Debug.Log($"[ApplyStatusAction] {StatusType} -> hook attached to {Target.Type}#{Target.Id} (Listeners={target.HookListeners.Count})");
