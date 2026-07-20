@@ -1,7 +1,8 @@
 using System.Collections;
-using enemy.instance;
+using combat;
 using enums;
 using gameStates.transient;
+using hook;
 using UnityEngine;
 
 namespace action.gameEffectActions
@@ -12,14 +13,12 @@ namespace action.gameEffectActions
         public override EnumActionStatus ActionStatus { get; set; }
         public EnumStatusType StatusType;
         public int Value;
-        public EnumTargetType TargetType;
-        public EnemyInstance Target;
+        public ActionEntityId Target;
 
-        public ApplyStatusAction(EnumStatusType statusType, int value, EnumTargetType targetType, EnemyInstance target, ActionId id, EnumActionStatus actionStatus)
+        public ApplyStatusAction(EnumStatusType statusType, int value, ActionEntityId target, ActionId id, EnumActionStatus actionStatus)
         {
             StatusType = statusType;
             Value = value;
-            TargetType = targetType;
             Target = target;
             Id = id;
             ActionStatus = actionStatus;
@@ -27,7 +26,23 @@ namespace action.gameEffectActions
 
         public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
-            Debug.Log($"[ApplyStatusAction] StatusType = {StatusType}, Value = {Value}");
+            ICombatActor target = EntityApi.Resolve(Target, battleState);
+            if (target != null && StatusRegistry.TryGetTemplate(StatusType, out HookListener template))
+            {
+                // Hook-type status: attach a listener (host filled in here) copied from the registry template.
+                target.HookListeners.Add(new HookListener
+                {
+                    Host = target,
+                    Hook = template.Hook,
+                    Effect = template.Effect
+                });
+                Debug.Log($"[ApplyStatusAction] {StatusType} -> hook attached to {Target.Type}#{Target.Id} (Listeners={target.HookListeners.Count})");
+            }
+            else
+            {
+                // Todo: modifier-type statuses (Weak/Vulnerable/Power) — not implemented yet, stub logs only.
+                Debug.Log($"[ApplyStatusAction] {StatusType} x{Value} -> {Target.Type}#{Target.Id} (no hook template; modifier Todo)");
+            }
             yield return null;
         }
     }

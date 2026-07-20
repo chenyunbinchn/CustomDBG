@@ -4,6 +4,6 @@ namespace hook
 {
     public interface IHookListener
     {
-        public List<HookInstance> HookInstances { get; }
+        public List<HookListener> HookListeners { get; }
     }
 }

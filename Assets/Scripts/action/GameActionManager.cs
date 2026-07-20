@@ -9,9 +9,9 @@ namespace action
         public List<GameAction> ActionQueue = new List<GameAction>();
         private uint _index = 0;
 
-        // Todo: Multiplayer — single shared ActionQueue (deterministic global order, replay-safe) vs per-player
-        //       GameActionManager? If a single shared queue is enough, NextId staying here is fine; otherwise the
-        //       Id ownership must be reconsidered. Decide before adding multiplayer.
+        // Note: DECIDED (260717): one shared ActionQueue for all players — action order IS the battle's
+        //       factual order (replay & network both rely on it), so NextId ownership stays here.
+        //       See 《260717-rule-multiplayer-battle-model》 §4-1.
         public ActionId NextId()
         {
             return new ActionId(_index++);

@@ -1,6 +1,7 @@
 using System.Collections;
 using enums;
 using gameStates.transient;
+using tools.assert;
 using UnityEngine;
 
 namespace action.gameEffectActions
@@ -20,7 +21,9 @@ namespace action.gameEffectActions
 
         public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
         {
-            Debug.Log($"[CostEnergyAction] Value = {Value}");
+            playerState.PlayerEnergy -= Value;
+            MyAssert.Assert(playerState.PlayerEnergy >= 0, "PlayerEnergy < 0 after CostEnergyAction — validation let an unaffordable card through!");
+            Debug.Log($"[CostEnergyAction] -{Value} -> PlayerEnergy = {playerState.PlayerEnergy}");
             yield return null;
         }
     }

@@ -1,10 +1,13 @@
 ﻿using System.Collections.Generic;
 using cards.instance;
+using combat;
+using enums;
+using hook;
 using UnityEngine;
 
 namespace gameStates.transient
 {
-    public class BattlePlayerState
+    public class BattlePlayerState : ICombatActor
     {
         // Note: Copy deck from PlayerState when initialing. 
         public CardPileManager PileManager = new CardPileManager();
@@ -13,9 +16,15 @@ namespace gameStates.transient
         public List<CardInstanceId> ExhaustedPile = new List<CardInstanceId>();
         public List<CardInstanceId> HandCards = new List<CardInstanceId>();
         public List<CardInstanceId> DiscardPile = new List<CardInstanceId>();
-        public List<CardInstanceId> PlayPile = new List<CardInstanceId>();
-        
+
+        public List<HookListener> HookListeners { get; } = new List<HookListener>();
         public int PlayerEnergy;
+
+        public int Hp { get; set; }
+        public int Block { get; set; }
+        // Note: Assigned by StateManager.Init — ActionEntityId.Id == this player's index in
+        //       BattleState.Players / StateManager.BattlePlayerStates.
+        public ActionEntityId Id { get; set; }
         
         public void Reset()
         {
@@ -37,11 +46,9 @@ namespace gameStates.transient
             {
                 DiscardPile.Clear();
             }
-            if (PlayPile.Count > 0)
-            {
-               PlayPile.Clear();
-            }
-            Debug.Log("[Pile] Reset -> all piles cleared (Draw/Hand/Discard/Play/Exhaust)");
+            HookListeners.Clear();
+            Debug.Log("[Pile] Reset -> all piles cleared (Draw/Hand/Discard/Exhaust)");
         }
+
     }
 }

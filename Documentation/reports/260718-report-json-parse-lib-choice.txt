@@ -1,0 +1,164 @@
+========================================================================
+  报告：JSON 解析库选择——Newtonsoft(已选) vs JsonUtility 手动解析(对照)
+  生成日期：2026-07-18
+========================================================================
+
+修订记录：
+  2026-07-18 初稿：项目已选定并实现方案 A(Newtonsoft)。本报告作为学习
+             对照，逐文件详述方案 C(Unity 内置 JsonUtility + 手动
+             string→enum 解析)如何实现，并给 A/C 逐项对比。不改代码，
+             纯参考。
+
+依据：当前已实现的 A 版代码——CardDefinitionManager.cs(JsonConvert +
+      StringEnumConverter)、CardDefinitionAuthoring.cs / EffectAuthoring.cs
+      (枚举字段)、Packages/manifest.json(newtonsoft-json 依赖)；
+      迁移背景见《260718-report-json-vs-so-card-data》。
+
+------------------------------------------------------------------------
+1. 背景
+------------------------------------------------------------------------
+  卡数据已从 ScriptableObject 迁到 JSON(StreamingAssets/cards.json)。
+  解析库选了 A(Newtonsoft.Json)：一行 JsonConvert.DeserializeObject 搞定，
+  枚举经 StringEnumConverter 自动 string→enum。本报告记录若改用 C
+  (JsonUtility 手动解析)会怎么写，供理解"文本→类型化数据"这条边界。
+
+------------------------------------------------------------------------
+2. A 与 C 的根本差异：谁负责 string→enum
+------------------------------------------------------------------------
+  两者读的是【同一份 cards.json】(都用字符串枚举 "DealDamage")。唯一区别
+  是谁把字符串变成 C# 枚举：
+    A(Newtonsoft)：库负责。StringEnumConverter 自动把 "DealDamage" 映射到
+      EnumEffectType.DealDamage；映射失败库自己抛异常。authoring 类型保持
+      枚举字段不变。
+    C(JsonUtility)：你负责。JsonUtility 把枚举字段当【整数】处理，无法读
+      "DealDamage" 字符串，所以 DTO 的枚举字段必须先声明成 string，加载时
+      你自己 Enum.TryParse + 校验。
+
+------------------------------------------------------------------------
+3. 方案 C 的完整实现(逐文件)
+------------------------------------------------------------------------
+
+  3.1 cards.json —— 不变
+    C 和 A 读同一份 JSON，枚举照样是可读字符串。这是关键：换解析库不动
+    数据格式。
+
+  3.2 DTO 改造 —— 枚举字段变 string
+    JsonUtility 无法把 "DealDamage" 塞进 EnumEffectType 字段，所以 DTO 的
+    枚举字段全部改成 string。有两种组织法：
+
+    子方案 C2(stringly-typed authoring，最少类，主推给学习):
+      EffectAuthoring 的枚举字段直接改成 string，在 CreateRuntimeEffect
+      里解析：
+
+        [Serializable]
+        public struct EffectAuthoring
+        {
+            public string effectType;   // 原 EnumEffectType
+            public string targetType;   // 原 EnumTargetType
+            public string statusType;   // 原 EnumStatusType
+            public int value;
+
+            public Effect CreateRuntimeEffect(string idName)
+            {
+                EnumEffectType et = EnumParseHelper.Parse<EnumEffectType>(effectType, "effectType", idName);
+                EnumTargetType tt = EnumParseHelper.Parse<EnumTargetType>(targetType, "targetType", idName);
+                EnumStatusType st = EnumParseHelper.Parse<EnumStatusType>(statusType, "statusType", idName);
+                return new Effect(et, tt, st, value);
+            }
+        }
+
+      CardDefinitionAuthoring.cardType 同理改成 string(在 manager 里解析)。
+
+    子方案 C1(独立 DTO 层，更干净但类更多):
+      新建一套只含 string 字段的 JSON DTO(CardJson / EffectJson)，反序列化
+      进它，再映射成现有的类型化 authoring/definition。好处：authoring/领域
+      类型保持强类型、不被字符串污染；代价：多一层类和一次映射。
+      —— A 天然是"强类型 authoring"(库解析)，C1 是手动版的同款干净；C2 是
+         用"authoring 直接变字符串型"换更少的类。学习选 C2 更直观。
+
+  3.3 解析 + 校验 —— C 的核心、也是学习点
+    string→enum 集中到一个 helper，失败即 MyAssert 崩(符合项目 crash on
+    invalid data)。文件名=类名，放 tools 下：
+
+        // Assets/Scripts/tools/parse/EnumParseHelper.cs
+        public static class EnumParseHelper
+        {
+            public static T Parse<T>(string raw, string field, string idName) where T : struct
+            {
+                // 注意两道关：TryParse 对【数字字符串】(如 "999")会返回 true
+                //   但给出未定义的枚举值，故必须再用 IsDefined 挡一道。
+                bool ok = System.Enum.TryParse(raw, out T result)
+                          && System.Enum.IsDefined(typeof(T), result);
+                MyAssert.Assert(ok,
+                    $"cards.json: bad {typeof(T).Name} value '{raw}' in field '{field}' (card '{idName}')");
+                return result;
+            }
+        }
+
+    学习要点(A 全帮你藏起来的东西):
+      - Enum.TryParse 默认【大小写敏感】，要容错得传 ignoreCase:true。
+      - Enum.TryParse 对数字字符串会"成功"但产出未定义值 → 必须配
+        Enum.IsDefined 才算真校验。
+      - 报错要带上是哪张卡(idName)、哪个字段(field)，否则一堆卡里定位不到。
+
+  3.4 CardDefinitionManager.Init —— 换掉反序列化调用
+    A 版：
+        CardLibraryData data =
+            JsonConvert.DeserializeObject<CardLibraryData>(cardsJson, new StringEnumConverter());
+    C 版：
+        CardLibraryData data = JsonUtility.FromJson<CardLibraryData>(cardsJson);
+        MyAssert.Assert(data != null && data.cards != null, "cards.json parse failed / no 'cards'");
+    LoadFromLibrary 里，cardType 由 manager 解析(因为它改成了 string)：
+        EnumCardType cardType = EnumParseHelper.Parse<EnumCardType>(card.cardType, "cardType", card.idName);
+        CardDefinition definition = new CardDefinition(newId, cardType, card.energyCost, effects, card.description);
+    去掉 using Newtonsoft.Json / Newtonsoft.Json.Converters。
+
+  3.5 manifest.json —— 去掉依赖
+    删掉 "com.unity.nuget.newtonsoft-json": "3.2.1" 这一行。C 是零第三方依赖。
+
+  3.6 JsonUtility 的坑(A 不会遇到，C 必须自己扛)
+    - 顶层不能是数组：必须有 CardLibraryData 这层壳包住 cards[]（我们已有）。
+    - 缺字段【静默给默认值，不报错】：energyCost 漏写就默默变 0，effectType
+      漏写变 ""(再被 EnumParseHelper 挡下)。所以校验必须显式写，不能指望库。
+    - 只认 public 字段 / [SerializeField]，不认属性。
+    - 原生把枚举当 int：这正是 C 要把枚举字段改 string 的根因。
+    - JSON 里多余的未知字段会被静默忽略(不报错)。
+    - 中文/UTF-8 正常(Unity 按 UTF-8 读)。
+
+------------------------------------------------------------------------
+4. A vs C 逐项对比
+------------------------------------------------------------------------
+  维度                | A: Newtonsoft(已选)        | C: JsonUtility 手动
+  --------------------|----------------------------|---------------------------
+  string→enum 谁做    | 库(StringEnumConverter)    | 你(Enum.TryParse+IsDefined)
+  第三方依赖          | 有(拉 newtonsoft-json 包)  | 无(引擎内置)
+  authoring 类型      | 保持强类型枚举字段         | 变 string 型(C2)或加 DTO 层(C1)
+  代码量              | 最少(一行反序列化)         | 多一个 helper + 各处 Parse 调用
+  非法数据行为        | 库抛异常                   | 你写的 MyAssert 崩(可带卡名/字段)
+  缺字段行为          | 库可配缺省/报错           | 静默默认值，得自己显式校验
+  JSON 可读性         | 字符串枚举、可读           | 【一样】字符串枚举、可读
+  cards.json 内容     | 与 C 完全相同              | 与 A 完全相同
+  将来复用            | 存档/回放/网络负载都能用   | 仅够简单 DTO，复杂结构吃力
+  学习价值            | 学"用标准工具"            | 学"文本→校验过的类型化数据"这条边界
+
+------------------------------------------------------------------------
+5. C 的学习价值(为什么值得看)
+------------------------------------------------------------------------
+  C 把 A 藏在库里的那步"字符串→类型 + 校验"摊开让你亲手写，能学到：
+    - parse-at-boundary：不可信文本在【进入类型系统的那一刻】就解析并校验，
+      而不是先塞进来、用的时候才发现错。
+    - crash on invalid data 落地：非法枚举/缺字段在加载期就 MyAssert 崩，
+      崩点带足定位信息(卡名+字段)，与项目哲学一致。
+    - Enum.TryParse 的两个反直觉点(大小写敏感、数字串假成功)——用过一次
+      就记住了，A 永远不会让你碰到。
+
+------------------------------------------------------------------------
+6. 结论
+------------------------------------------------------------------------
+  项目选 A(Newtonsoft)：代码最少、健壮、将来存档/回放/网络都能复用，代价
+  是一个官方包依赖。C(JsonUtility 手动解析)是零依赖的手写等价物，产出的
+  cards.json 与 A 逐字节相同，区别只在"谁把字符串变成枚举并校验"——A 交给
+  库，C 交给你在 EnumParseHelper + CreateRuntimeEffect 里自己写。想理解这条
+  数据边界的原理，照第 3 节把 C 写一遍即可；想要生产健壮性和复用，用已实现
+  的 A。两者 JSON 格式一致，将来互换只动解析层、不动数据。
+========================================================================

@@ -23,6 +23,7 @@ namespace cards.instance
             Debug.Log($"[Pile] CopyFromDeck -> registry({Dictionary.Count}): {DescribePile(new List<CardInstanceId>(Dictionary.Keys))}");
         }
 
+        // Todo: per-player id uniqueness — see the note on CardDeck.GenerateId.
         public CardInstanceId AddCard(CardDefinition definition)
         {
             uint newIdValue = ++_maxIndex;
@@ -39,7 +40,7 @@ namespace cards.instance
         public string DescribeCard(CardInstanceId id)
         {
             bool found = Dictionary.TryGetValue(id, out CardInstance card);
-            return found ? $"{card.Definition.Id.Name}#{id.Value}" : $"?#{id.Value}";
+            return found ? $"{card.DefinitionId.Name}#{id.Value}" : $"?#{id.Value}";
         }
 
         // Note: Debug-friendly listing of a pile, e.g. "[攻击#3, 防御#1]".
