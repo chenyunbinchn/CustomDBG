@@ -7,16 +7,20 @@
   2026-07-18 初版：固化 260717-260718 会话确定的 Hook 系统机制——构成、
              存储与收集、触发时机、无差别广播+自过滤、反应翻译入队、
              入队位置、多 action×多监听者的确定性、死循环防护。
+  2026-07-18 落地实现后补充：§2-1 明确宿主只能是真实体（Item/BattlePlayerState/
+             Card/Enemy，PlayerInfo 不再持有）；新增 §2-1a 生命周期由宿主隐含、
+             否决 lifetime 字段；新增 §5-3 Owner 字段（卡/道具宿主没有
+             ActionEntityId，自过滤与效果源都靠它）。HookSystem/HookEvent 已按
+             本规则实现，不再是"待重建"状态。
 
 依据：会话讨论（260717-260718）；参考报告
       《260622-report-event-hook-system》（STS2 源码实证）；
       《260717-rule-multiplayer-battle-model》（串行结算，本规则 §6 依赖它）。
 
-当前状态说明：hook.HookSystem 已在本分支删除、待按本规则重建；
-      HookEvent / EnumEnqueueMode 尚未编码，是"重建时要遵循的设计"；
-      EnumHookFilter 已建文件（None/Always/SelfIsSource/SelfIsTarget）但
-      尚未接入派发。本规则为规范性文档（描述应如何实现），不是对现有
-      代码行为的描述。
+当前状态说明：§1-§6、§8-§9 已实现（hook/HookSystem.cs、hook/HookEvent.cs、
+      hook/HookManager.cs、hook/HookListener.cs，AfterCardPlayed 已接在
+      systems/BattleCommandApi.cs 的出牌命令里）。§7 的 EnumEnqueueMode（头插）
+      尚未编码，是"需要时再加"的设计；当前一律尾插。
 
 ------------------------------------------------------------------------
 1. 构成：监听者是数据，派发是无状态逻辑
@@ -31,8 +35,24 @@
 ------------------------------------------------------------------------
 2. 存储与收集：监听者挂在实体身上，现场收集
 ------------------------------------------------------------------------
-  2-1. 监听者存在实体身上（ICombatActor.HookListeners），属 transient 战斗
-       状态，归实体持有（"state holds data"）。
+  2-1. 监听者存在【真实体】身上，归实体持有（"state holds data"）。宿主只能是
+       真正的东西，不能是 BattleState 这种战场/世界容器：
+         - ItemInstance（挂在 PlayerInfo.Items）—— 遗物/永久被动
+         - BattlePlayerState（玩家的战斗侧门面）—— 战斗内 power
+         - CardInstance —— 卡牌自带的 hook
+         - EnemyInstance —— 敌人被动
+       PlayerInfo 自己【不持有】监听者、也不实现 IHookListener：持久 hook 一律
+       来自它的 Items，每个 Item 自持一份。
+
+  2-1a. 生命周期由【宿主】隐含，不设 lifetime 字段、不写清理扫描：
+         - 遗物没了 → 它的 hook 跟着没；
+         - 战斗态重建（BattlePlayerState.Reset，由 EnterBattle 调用）→ 战斗内
+           power 自动清空，因此不需要 ExitBattle 清理步骤；
+         - 卡实例每场战斗重建（CardPileManager.CopyFromDeck 造新实例）→ 卡上的
+           hook 随之消失；
+         - 敌人列表丢弃 → 敌人 hook 消失。
+       把不同生命周期的监听者塞进同一个列表、再靠 lifetime 字段区分，是被否掉的
+       做法：它把宿主本来免费提供的生命周期又变回需要手写的清理代码。
   2-2. 派发入口全局唯一，但只是无状态静态类，不持有监听者列表。
        禁止建一个持有 HookListenerList 的全局 Manager——那会引入：施加/
        移除两处同步、忘注销的幽灵监听者、以及序列化时的对象引用重建。
@@ -68,6 +88,13 @@
        SelfIsTarget / …），不用委托。过滤的判断代码集中写在派发逻辑里
        （一个对照 Filter 与 HookEvent 的 switch）；监听者只携带条件，
        不携带判断方法。新过滤种类 = 加一个枚举值 + 一个 case。
+
+  5-3. HookListener 必须带 ActionEntityId Owner —— "我为哪个战斗实体服务"。
+       因为宿主可能是 CardInstance / ItemInstance，它们【没有】ActionEntityId，
+       所以不能拿宿主去比对 HookEvent.Source/Target。Owner 同时是反应被翻译成
+       action 时的 source（Self/User 解析到 Owner，而不是解析到那个物理宿主）。
+       Owner 由施加处填写（如 ApplyStatusAction 填成目标的 Id），注册表模板里
+       只放与"这个状态是什么"有关的字段（Hook / Filter / Effect）。
 
 ------------------------------------------------------------------------
 6. 反应机制：翻译成普通 GameAction 入队，不立即执行

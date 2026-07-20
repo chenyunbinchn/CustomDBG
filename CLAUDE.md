@@ -61,8 +61,12 @@ the key lifecycle split. Persistent (`PlayerState`: Hp, gold, energy limits; the
 `CardInstanceManager`; seeds) survives across battles and is the save/replay source.
 Transient (`BattleState`, `BattleCardState`: the five card piles, enemies, energy, block,
 status, turn) is rebuilt at battle start and discarded at battle end. Litmus test: a value
-written back when a battle ends is persistent; otherwise it is transient. Do not write
-persistent state mid-battle (the one sanctioned exception is `RandomManager`).
+that must survive the battle is persistent; otherwise it is transient. **Battle code reaches
+persistent state only through the combat-actor facade**: `BattlePlayerState` implements
+`ICombatActor` and forwards `Hp`/`Id` to its `PlayerInfo`, which is the single storage — it
+holds no copy, so there is no second source of truth and no "write back at battle end" step.
+Every other persistent field (gold, deck, energy limits) stays off limits mid-battle;
+`RandomManager` is the one other sanctioned exception.
 
 **Data-driven effects.** A card's behavior is a `CardEffect[]`, where each `CardEffect`
 is a struct `{EffectType, TargetType, StatusType, Value}`. Effects are interpreted by enum
