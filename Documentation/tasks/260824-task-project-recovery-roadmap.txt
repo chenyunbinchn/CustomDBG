@@ -1,0 +1,127 @@
+========================================================================
+  任务：CustomDBG 恢复开发路线
+  生成日期：2026-08-24
+  状态：pending
+========================================================================
+
+修订记录：
+  2026-08-24 初稿：根据 260824-report-project-status 的代码与仓库盘点，按依赖
+             顺序整理恢复基线、战斗闭环、联机验证和内容扩展任务。
+
+关联报告：Documentation/reports/260824-report-project-status.txt
+
+------------------------------------------------------------------------
+T0. 固定可恢复的仓库基线（最高优先级）
+------------------------------------------------------------------------
+
+  [ ] 逐行确认当前 3 个 staged 文件，决定它们是否构成一个独立提交；保留
+      BattleCommand.PlayCard 工厂时，为每种未来命令沿用同一工厂约定。
+  [ ] 备份/提交中断工作后，核对 dev-Yunbin 与 main 的 4/8 提交分叉；合并时
+      人工处理 CLAUDE.md 和 Hook 规则，不能用任一侧整文件覆盖。
+  [ ] 为当前开发分支配置明确 upstream，记录 fetch 后的真实远端差异。
+  [ ] 修正 CLAUDE.md 与已完成/已失效任务，使 JSON、BattlePlayerState、Hook、
+      ActionExecutor 的描述与当前代码一致。
+
+完成标准：
+  - git status 中不再有来历不明的 staged/unstaged 源码；
+  - 当前分支与 main 的保留/舍弃关系有明确提交记录；
+  - 新开发者只看入口文档即可找到真实启动场景和当前架构。
+
+------------------------------------------------------------------------
+T1. 建立可靠的编译、启动和测试入口（最高优先级）
+------------------------------------------------------------------------
+
+  [ ] 修复/重启 Unity Licensing Client，用 Unity 6000.4.9f1 完成完整导入。
+  [ ] 明确启动场景：清理 SampleScene 的 allCardLibrarySo 旧序列化字段，决定
+      SampleScene 是测试场景还是正式 Bootstrap 场景；在 Build Settings 至少启用
+      一个有效场景。
+  [ ] 在 Editor 中按 Q -> S -> W -> E -> W 做一次冒烟，检查入战、抽牌、出牌、
+      耗能、伤害/格挡、弃牌、Afterimage 反应和再次入战重置。
+  [ ] 新建 EditMode 测试程序集，优先覆盖：
+        - SeedHelper/RandomManager/StableShuffle 的固定种子结果；
+        - BattlePileApi 抽牌、弃牌重洗和空牌堆；
+        - CanPlayCard 的每种拒绝结果；
+        - BattleCommand 排队与 action 稳定点；
+        - Hook 收集和过滤顺序。
+  [ ] 增加最小 CI/批处理说明；许可证不可用时至少执行 C# 编译和纯逻辑测试。
+
+完成标准：
+  - Unity Console 0 个编译错误；
+  - Player Build 能从已启用场景启动；
+  - 上述冒烟可重复；关键纯逻辑测试自动通过。
+
+------------------------------------------------------------------------
+T2. 先修复会污染后续开发的正确性问题（最高优先级）
+------------------------------------------------------------------------
+
+  [ ] 为 PlayCard 增加目标合法性校验和 InvalidTarget 结果；禁止把 default
+      ActionEntityId 当作“无目标”，定义显式 Optional/None 表达。
+  [ ] 修复 CardPileManager.AddCard：把新 CardInstance 加入 Dictionary，并加测试。
+  [ ] HookManager 按 CardInstanceId 排序收集卡牌 Hook，写确定性顺序测试。
+  [ ] 定义 EnterBattle/ExitBattle 对 action 队列、command 队列、ActionId、回合号、
+      IsInBattle 的重置规则；异常中断后不能把上一场工作带进下一场。
+  [ ] 把 ActionExecutor 的 BattleState + current player 参数替换为 BattleContext；
+      Context 至少提供 StateManager/BattleState/RandomManager 和 source/owner 解析能力。
+
+完成标准：
+  - 非法或缺失目标不会生成 action；
+  - 动态获得的卡牌可被检索并进入牌堆；
+  - 相同状态/种子下 Hook 与 action 顺序可重复；
+  - 连续进入两场战斗没有残留队列或战斗状态。
+
+------------------------------------------------------------------------
+T3. 完成最小战斗垂直切片（高优先级）
+------------------------------------------------------------------------
+
+  [ ] 实现 DrawCardAction、ExhaustCardAction、DiscardHandCardAction 的真实状态修改。
+  [ ] DamageAction 按“格挡吸收 -> Hp”结算，并实现死亡移除/胜负检查。
+  [ ] 实现 Exhaust Self 和至少 SelectedEnemy/AllEnemy 的明确目标展开；不支持的
+      TargetType 在数据加载期拒绝，不能静默退回 picked。
+  [ ] 定义状态层数：Afterimage 使用 Value，Weak/Vulnerable/Power 接入 modifier
+      链；重复施加、减少和战斗重置都有测试。
+  [ ] 实现开始回合自动抽牌/回能、EndTurnCommand、弃手牌、敌人行动、格挡清理、
+      下一回合、胜利/失败、ExitBattle。
+  [ ] 将 HandCardChooseAction 改为可序列化的 ChoiceCommand 输入，先在单机加入
+      取消/超时兜底，避免 action 队列永久挂起。
+  [ ] CardView.Bind 显示名称、费用、描述/图片；根据 HandCards 创建/回收 View；
+      拖拽或点击只提交 BattleCommand，不直接改战斗状态。
+
+完成标准：
+  - 玩家无需测试按键即可从 UI 开始一场战斗、完整打完并得到胜负；
+  - 攻击、防御、剑柄打击、残影、连斩的文字与实际行为一致；
+  - 关键战斗状态迁移都有自动测试。
+
+------------------------------------------------------------------------
+T4. 把“联机硬要求”变成可验证实现（T3 后）
+------------------------------------------------------------------------
+
+  [ ] 单独编写网络技术选型报告：比较 Unity Netcode for GameObjects、成熟第三方
+      方案和自定义轻量命令传输；以 listen server、确定性命令流、重连、平台和
+      运维成本为评判条件，决策后再引入依赖。
+  [ ] 定义 BattleCommand/ChoiceCommand 的版本化 wire DTO；主机和本地客户端都
+      经过同一接收、排序、校验入口。
+  [ ] 增加命令序号、回放日志、cards.json 内容 version/hash 和每稳定点 state hash。
+  [ ] 选择可跨平台复现且状态可快照的 PRNG，或正式证明当前 System.Random 在全部
+      目标运行时的一致性；实现重放到指定随机 counter 的恢复。
+  [ ] 实现掉线/重连、选择超时、主机离开策略，并用两进程自动对拍状态 hash。
+
+完成标准：
+  - 主机与至少一个客户端完成同一整场 T3 战斗；
+  - 回放命令可复现最终状态；每个稳定点 state hash 一致；
+  - 非法命令、不同内容 hash、掉线和超时均有确定结果。
+
+------------------------------------------------------------------------
+T5. 扩展游戏内容与局外循环（T3 稳定后）
+------------------------------------------------------------------------
+
+  [ ] 建立 Enemy Authoring -> Definition -> Instance 数据链和确定性 AI。
+  [ ] 建立 Item/遗物数据链、获得/移除流程和持久 Hook。
+  [ ] 实现地图、奖励、商店、牌组编辑、存档/读档。
+  [ ] 让卡图进入 Resources/Addressables 内容流；决定热更新和 Mod 边界。
+  [ ] 为 Android/WebGL 用 UnityWebRequest 替换 StreamingAssets 的直接 File 读取。
+
+完成标准：
+  - 至少一条“地图节点 -> 战斗 -> 奖励 -> 牌组变化 -> 下一节点”的局外闭环；
+  - 存档/读档与联机内容版本策略一致。
+
+========================================================================
