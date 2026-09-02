@@ -30,6 +30,7 @@ namespace ui.loading
                 yield break;
             }
 
+            // TODO: Move Addressables handle acquisition into the shared UI preload/cache service.
             AsyncOperationHandle<GameObject> handle = Addressables.LoadAssetAsync<GameObject>(address);
             _pendingHandles.Add(handle);
             yield return handle;

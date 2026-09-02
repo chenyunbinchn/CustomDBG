@@ -36,7 +36,7 @@ namespace ui
             _canvas = GetComponentInParent<Canvas>();
             if (root == null)
             {
-                // TODO: Change CardViewPrefab's top transform to RectTransform and bind it as root.
+                // Legacy prefabs may still keep their layout RectTransform on visualRoot.
                 root = visualRoot;
             }
             if (canvasGroup == null)

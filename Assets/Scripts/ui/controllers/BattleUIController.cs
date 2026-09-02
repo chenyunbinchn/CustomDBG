@@ -1,6 +1,8 @@
 using mono;
 using tools.assert;
+using ui.core;
 using ui.presenters;
+using ui.viewModels;
 using UnityEngine;
 
 namespace ui.controllers
@@ -10,10 +12,24 @@ namespace ui.controllers
     {
         [SerializeField] private UnityBoostrap unityBootstrap;
         [SerializeField] private int playerIndex;
+        [SerializeField] private string battlePageAddress = "UI/BattlePage";
         [SerializeField] private string battleHudAddress = "UI/BattleHUD";
-        [SerializeField] private string cardPileDialogAddress = "UI/CardPileDialog";
+        [SerializeField] private string cardPileDialogModalAddress = "UI/CardPileDialogModal";
 
         private BattlePresenter _presenter;
+
+        public bool OpenBattleUi()
+        {
+            UIManager manager = UIManager.Instance;
+            MyAssert.Assert(manager != null, "BattleUIController requires an active UIManager.");
+            if (manager == null || manager.IsBusy)
+            {
+                return false;
+            }
+
+            return manager.OpenPage(battlePageAddress, BattlePageViewModel.Empty,
+                HandleBattlePageOpened);
+        }
 
         public bool ShowBattleHud()
         {
@@ -25,6 +41,21 @@ namespace ui.controllers
         {
             EnsurePresenter();
             _presenter.Refresh();
+        }
+
+        private void HandleBattlePageOpened(UIView view)
+        {
+            if (view == null)
+            {
+                return;
+            }
+
+            BattlePage battlePage = view as BattlePage;
+            MyAssert.Assert(battlePage != null, "Battle page address must load a BattlePage root.");
+            if (battlePage != null)
+            {
+                ShowBattleHud();
+            }
         }
 
         private void Update()
@@ -40,7 +71,8 @@ namespace ui.controllers
             }
 
             MyAssert.Assert(unityBootstrap != null, "BattleUIController requires UnityBoostrap.");
-            _presenter = new BattlePresenter(unityBootstrap.StateManager, playerIndex, cardPileDialogAddress);
+            _presenter = new BattlePresenter(unityBootstrap.StateManager, playerIndex,
+                cardPileDialogModalAddress);
             // TODO: Replace the scene reference with the final game-flow dependency injection path.
             // TODO: Select the locally controlled player instead of using a serialized player index.
         }

@@ -1,0 +1,35 @@
+========================================================================
+  任务：接通最小战斗 UI 启动调用
+  状态：done
+========================================================================
+
+修订记录：
+  2026-09-02 初版：接通测试战斗进入、Page、HUD 和手牌刷新调用。
+
+------------------------------------------------------------------------
+1. 已实现
+------------------------------------------------------------------------
+
+  - BattleUIController.OpenBattleUi 打开 UI/BattlePage。
+  - BattlePage 加载完成后自动调用 ShowBattleHud。
+  - UnityBoostrap 的 Q 键在 EnterBattle 后调用 OpenBattleUi。
+  - UnityBoostrap 的 S 键直接抽牌后请求刷新 BattleHUD。
+  - CardPileDialogModal Addressables 地址拼写统一为 UI/CardPileDialogModal。
+
+------------------------------------------------------------------------
+2. 临时性质
+------------------------------------------------------------------------
+
+  UnityBoostrap 中的键盘输入属于当前测试入口。正式 Game Flow 建立后，应由 Game Flow
+  在战斗状态初始化完成时调用 BattleUIController.OpenBattleUi，并删除该测试耦合。
+
+------------------------------------------------------------------------
+3. 仍需 Unity Editor 接线
+------------------------------------------------------------------------
+
+  - CardPileDialogModal 的 titleText、cardPileListView、closeButton。
+  - Scroll View 或其子对象上的 CardPileListView 组件。
+  - Content 上的 GridLayoutGroup、ContentSizeFitter，以及 CardPileListView 的三个字段。
+  - 删除 PageLayer 和 HudLayer 下用于制作 Prefab 的临时实例。
+
+========================================================================

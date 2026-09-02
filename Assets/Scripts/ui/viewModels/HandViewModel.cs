@@ -1,8 +1,9 @@
 using System.Collections.Generic;
+using ui.core;
 
 namespace ui.viewModels
 {
-    public sealed class HandViewModel
+    public sealed class HandViewModel : IUIViewModel
     {
         public IReadOnlyList<CardViewModel> Cards { get; }
 

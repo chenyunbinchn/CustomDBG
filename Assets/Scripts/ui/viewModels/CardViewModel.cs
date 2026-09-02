@@ -1,9 +1,10 @@
 using cards.instance;
+using ui.core;
 using UnityEngine;
 
 namespace ui.viewModels
 {
-    public sealed class CardViewModel
+    public sealed class CardViewModel : IUIViewModel
     {
         public CardInstanceId CardId { get; }
         public string Name { get; }

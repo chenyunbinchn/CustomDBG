@@ -5,6 +5,7 @@
 修订记录：
   2026-08-25 初版：确定 UI 分类、生命周期和读写分离。
   2026-09-01 精简：只保留第一阶段投入使用必须遵守的规则。
+  2026-09-02 命名：根 UI 名称必须以所属 UI 类型结尾。
 
 ------------------------------------------------------------------------
 1. UI 职责
@@ -26,6 +27,14 @@
 
 UIManager 只管理这四类根 UI。
 CardView、血条和列表元素由所属 Page/HUD 创建、复用和释放。
+
+根 UI 命名必须使用“功能名 + UI 类型”：
+  - Page：BattlePage、HomePage；
+  - HUD：BattleHUD；
+  - Modal：CardPileDialogModal、SettingsDialogModal；
+  - Overlay：LoadingOverlay。
+
+内部组件不添加根 UI 类型后缀，例如 CardView、HandView、CardPileListView。
 
 ------------------------------------------------------------------------
 3. 读写分离
@@ -98,7 +107,7 @@ Intent：
   [ ] HomePage 可以打开。
   [ ] 打开 BattlePage 会关闭 HomePage。
   [ ] BattlePage 关闭时会清理 BattleHUD。
-  [ ] SettingsDialog 可以压入 ConfirmDialog，Pop 后恢复下层输入。
+  [ ] SettingsDialogModal 可以压入 ConfirmDialogModal，Pop 后恢复下层输入。
   [ ] Overlay 显示在 Modal 上方。
   [ ] View 只接收 IUIViewModel。
   [ ] CardView 输出 Intent，不直接调用 BattleCommandApi。

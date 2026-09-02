@@ -65,8 +65,8 @@ HandView/BattleHUD，不应进入 UIManager。
      UI/HomePage
      UI/BattlePage
      UI/BattleHUD
-     UI/SettingsDialog
-     UI/ConfirmDialog
+     UI/SettingsDialogModal
+     UI/ConfirmDialogModal
      UI/LoadingOverlay
 
 ------------------------------------------------------------------------
@@ -87,14 +87,14 @@ ViewModel：
 
 View：
 
-  public sealed class HomePageView : UIView
+  public sealed class HomePage : UIView
   {
       [SerializeField] private TMP_Text titleText;
 
       protected override void Render(IUIViewModel viewModel)
       {
           HomePageViewModel model = viewModel as HomePageViewModel;
-          MyAssert.Assert(model != null, "HomePageView requires HomePageViewModel.");
+          MyAssert.Assert(model != null, "HomePage requires HomePageViewModel.");
           if (model == null)
           {
               return;
@@ -137,11 +137,11 @@ BattleHUD 自己负责 CardView 集合的创建、布局、复用和清理。
 6. Modal 栈范例
 ------------------------------------------------------------------------
 
-  UIManager.Instance.PushModal("UI/SettingsDialog", settingsViewModel);
+  UIManager.Instance.PushModal("UI/SettingsDialogModal", settingsViewModel);
 
 在 SettingsDialog 上再打开确认框：
 
-  UIManager.Instance.PushModal("UI/ConfirmDialog", confirmViewModel);
+  UIManager.Instance.PushModal("UI/ConfirmDialogModal", confirmViewModel);
 
 此时 SettingsDialog 仍显示，但不能接收输入。关闭栈顶：
 
@@ -240,8 +240,12 @@ BattlePresenter 重新生成 ViewModel，再刷新 BattleHUD。
   HandView
     创建 CardView、计算扇形布局、保留拖拽占位并检测是否投入出牌区域。
 
-  CardPileDialog
-    只读显示抽牌堆或弃牌堆快照；它不改变牌堆内容。
+  CardPileDialogModal
+    Modal 根界面，只负责标题、关闭按钮和弹窗生命周期；它不改变牌堆内容。
+
+  CardPileListView
+    在 ScrollRect 中以 GridLayoutGroup 只读显示抽牌堆或弃牌堆快照，并管理
+    CardView 的创建和清理。
 
 Prefab 最小绑定：
 
@@ -249,23 +253,29 @@ Prefab 最小绑定：
        HandView、energyText、drawPileCountText、discardPileCountText、
        drawPileButton、discardPileButton。
   2. HandView 绑定 cardRoot、playDropArea 和 CardViewPrefab。
-  3. UI/CardPileDialog 根对象添加 CardPileDialog、CanvasGroup，并绑定：
-       titleText、cardRoot、CardViewPrefab、closeButton。
+  3. UI/CardPileDialogModal 根对象添加 CardPileDialogModal、CanvasGroup，并绑定：
+       titleText、cardPileListView、closeButton。
+     CardPileListView 绑定 ScrollRect、Content RectTransform 和 CardViewPrefab。
+     ScrollRect 的 Content 应绑定同一个 Content RectTransform；Content 添加：
+       GridLayoutGroup
+       ContentSizeFitter（Vertical Fit = Preferred Size）
+     Viewport 添加 RectMask2D，ScrollRect 关闭 Horizontal、开启 Vertical。
   4. 将以上两个根 Prefab 分别登记为 Addressables：
        UI/BattleHUD
-       UI/CardPileDialog
+       UI/CardPileDialogModal
   5. 场景对象添加 BattleUIController，绑定 UnityBoostrap；进入战斗且 BattlePage
      已打开后调用 ShowBattleHud()。
 
-CardViewPrefab 当前会在 root 未绑定时临时使用 visualRoot。为了使布局与拖拽拥有独立
-根节点，后续应把 Prefab 顶层改为 RectTransform 并显式绑定 root；代码中已有 TODO。
+CardViewPrefab 顶层已经改为 RectTransform，并显式绑定 CardView.root，因此既可以由
+HandView 自行定位，也可以作为 GridLayoutGroup 的直接布局元素。
 
 当前范围与扩展点：
 
   - 出牌通过现有 BattleCommandApi 执行，UI 不直接扣能量或移动卡牌。
   - 抽牌堆和弃牌堆当前只负责计数与只读查看。
   - CardView 每次刷新会重建；对象池与按 CardInstanceId 增量更新已标记 TODO。
-  - 目标选择、抽牌/弃牌/手牌上限动画、超大牌堆滚动已标记 TODO。
+  - 普通牌堆使用可滚动网格；只有实际数据证明超大牌堆存在时才增加虚拟化。
+  - 目标选择、抽牌/弃牌/手牌上限动画已标记 TODO。
   - DrawCardAction 仍是战斗业务层的既有限制，不由 UI 层补写业务规则。
 
 ========================================================================

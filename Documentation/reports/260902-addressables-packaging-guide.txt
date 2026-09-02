@@ -1,0 +1,59 @@
+========================================================================
+  CustomDBG Addressables 打包说明
+  日期：2026-09-02
+========================================================================
+
+1. 结论
+
+  - Inspector 底部的 AssetBundle 名称属于旧式手动 AssetBundle 工作流。
+  - 本项目使用 Addressables 时应将该字段保持为 None。
+  - Addressables 会根据 Group Schema 自动生成 AssetBundle、Catalog 和依赖关系。
+
+2. 当前项目配置
+
+  - Unity 6000.4.9f1。
+  - Addressables 2.9.1。
+  - Default Local Group：Include In Build 开启、LZ4、Pack Together。
+  - Build Addressables on Player Build 当前使用个人 Preferences 值。
+  - 当前 Default Local Group 尚未登记 UI/BattlePage、UI/BattleHUD、
+    UI/CardPileDialogModal。
+
+3. UI 资源登记
+
+  在 Window > Asset Management > Addressables > Groups 中，把三个根 Prefab
+  拖入 Default Local Group，并把 Address 改为：
+
+    UI/BattlePage
+    UI/BattleHUD
+    UI/CardPileDialogModal
+
+  CardViewPrefab 已作为独立 Addressable 登记：
+
+    UI/CardView
+
+  当前 HUD/Dialog 仍通过序列化字段直接引用 CardViewPrefab，因此它也会作为依赖
+  自动加载。独立地址为后续的战斗前预加载和 CardViewFactory 提供入口。
+
+4. 开发期运行
+
+  Play Mode Script 使用 Use Asset Database 时无需先构建 Bundle，适合快速验证代码和
+  Prefab。正式验证打包内容时使用 Use Existing Build，并先执行完整内容构建。
+
+5. 正式本地打包
+
+  1. 切换最终目标平台。
+  2. Addressables Groups > Profile 选择正确 Profile。
+  3. Build > New Build > Default Build Script。
+  4. 构建成功后再执行 Player Build。
+
+  当前 UI 全部属于 Local Group，不需要上传服务器。默认本地构建路径应保持不变，
+  Player Build 会包含相应本地内容。
+
+6. 重新构建
+
+  开发阶段资源发生变化后重新执行 New Build 即可。若缓存导致内容不一致，先执行
+  Build > Clean Build > All，再执行 Default Build Script。
+
+  Update a Previous Build 只用于已经发布的远程内容差分更新，当前阶段不需要。
+
+========================================================================

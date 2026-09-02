@@ -5,6 +5,8 @@ using gameStates;
 using gameStates.transient;
 using hook;
 using systems;
+using tools.assert;
+using ui.controllers;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -15,6 +17,8 @@ namespace mono
         [SerializeField] private string cardsJsonFileName = "cards.json";
         public StateManager StateManager = new StateManager();
 
+        private BattleUIController _battleUIController;
+
         private void Start()
         {
             // Note: Card data is JSON under StreamingAssets (replaces the old ScriptableObject library).
@@ -22,6 +26,9 @@ namespace mono
             string cardsJson = File.ReadAllText(Path.Combine(Application.streamingAssetsPath, cardsJsonFileName));
             // Todo: Base on room's player number set playerNum
             StateManager.Init(cardsJson, this, 4);
+            _battleUIController = GetComponent<BattleUIController>();
+            MyAssert.Assert(_battleUIController != null,
+                "UnityBoostrap requires BattleUIController for the current battle UI test flow.");
             Debug.Log("MainSeed: " + StateManager.GameState.SeedManager.MainSeed + "\n");
         }
 
@@ -41,6 +48,7 @@ namespace mono
             {
                 BattleApi.EnterBattle(StateManager.BattleState, StateManager.GamePlayerState, StateManager.BattlePlayerStates,
                     StateManager.GameState.RandomManager);
+                _battleUIController?.OpenBattleUi();
             }
 
             if (Keyboard.current.wKey.wasPressedThisFrame)
@@ -67,6 +75,7 @@ namespace mono
             if (Keyboard.current.sKey.wasPressedThisFrame)
             {
                 BattlePileApi.DrawCards(StateManager.BattlePlayerStates[0], 3, StateManager.GameState.RandomManager);
+                _battleUIController?.RefreshBattleHud();
             }
 
             // Todo: Remove Afterimage test code.

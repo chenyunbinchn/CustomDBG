@@ -20,23 +20,23 @@ namespace ui.presenters
     {
         private readonly StateManager _stateManager;
         private readonly int _playerIndex;
-        private readonly string _cardPileDialogAddress;
+        private readonly string _cardPileDialogModalAddress;
 
         private BattleHUD _hud;
         private bool _waitingForCommand;
         private bool _refreshRequested;
 
-        public BattlePresenter(StateManager stateManager, int playerIndex, string cardPileDialogAddress)
+        public BattlePresenter(StateManager stateManager, int playerIndex, string cardPileDialogModalAddress)
         {
             MyAssert.Assert(stateManager != null, "BattlePresenter requires StateManager.");
             MyAssert.Assert(playerIndex >= 0 && playerIndex < stateManager.BattlePlayerStates.Length,
                 $"BattlePresenter player index is out of range: {playerIndex}");
-            MyAssert.Assert(!string.IsNullOrWhiteSpace(cardPileDialogAddress),
-                "BattlePresenter requires a card pile dialog address.");
+            MyAssert.Assert(!string.IsNullOrWhiteSpace(cardPileDialogModalAddress),
+                "BattlePresenter requires a card pile dialog modal address.");
 
             _stateManager = stateManager;
             _playerIndex = playerIndex;
-            _cardPileDialogAddress = cardPileDialogAddress;
+            _cardPileDialogModalAddress = cardPileDialogModalAddress;
         }
 
         public bool ShowHud(string battleHudAddress)
@@ -157,7 +157,7 @@ namespace ui.presenters
             UIManager manager = UIManager.Instance;
             if (manager != null)
             {
-                manager.PushModal(_cardPileDialogAddress, viewModel);
+                manager.PushModal(_cardPileDialogModalAddress, viewModel);
             }
         }
 

@@ -15,13 +15,28 @@ MonoBehaviour:
   m_GroupName: Default Local Group
   m_GUID: 5f3aa48a0666c46438e819dc5c01b8fe
   m_SerializeEntries:
+  - m_GUID: 0408f1fd8362e7c42a70cdf5c2473b88
+    m_Address: UI/CardPileDialogModal
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 2f014cb188d01da469afa5ced1a4d7cc
+    m_Address: UI/BattlePage
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 378946bbc38126a4a91eec56b44395fa
-    m_Address: Assets/Prefabs/CardTemplate.prefab
+    m_Address: UI/CardView
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 8c9cfa26abfee488c85f1582747f6a02
     m_Address: Assets/Scenes/SampleScene.unity
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: e234eecafae241440b6b8adddb350bb3
+    m_Address: UI/BattleHUD
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

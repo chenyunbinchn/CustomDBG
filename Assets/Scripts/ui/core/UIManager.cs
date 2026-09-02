@@ -187,6 +187,7 @@ namespace ui.core
         private IEnumerator OpenPageRoutine(string address, IUIViewModel viewModel)
         {
             UIView nextPage = null;
+            // TODO: Replace on-demand loading with the shared UI preload/cache pipeline.
             yield return _loader.Load(address, pageLayer.transform, view => nextPage = view);
             if (nextPage == null)
             {
@@ -208,6 +209,7 @@ namespace ui.core
         private IEnumerator ShowHudRoutine(string address, IUIViewModel viewModel)
         {
             UIView hud = null;
+            // TODO: Replace on-demand loading with the shared UI preload/cache pipeline.
             yield return _loader.Load(address, hudLayer.transform, view => hud = view);
             if (hud == null)
             {
@@ -222,6 +224,7 @@ namespace ui.core
         private IEnumerator PushModalRoutine(string address, IUIViewModel viewModel)
         {
             UIView modal = null;
+            // TODO: Replace on-demand loading with the shared UI preload/cache pipeline.
             yield return _loader.Load(address, modalLayer.transform, view => modal = view);
             if (modal == null)
             {
@@ -242,6 +245,7 @@ namespace ui.core
         private IEnumerator ShowOverlayRoutine(string address, IUIViewModel viewModel)
         {
             UIView overlay = null;
+            // TODO: Replace on-demand loading with the shared UI preload/cache pipeline.
             yield return _loader.Load(address, overlayLayer.transform, view => overlay = view);
             if (overlay == null)
             {
