@@ -1,0 +1,281 @@
+========================================================================
+  CustomDBG 最小 UI 使用说明
+========================================================================
+
+修订记录：
+  2026-08-26 初版：说明完整 UI 设计。
+  2026-09-01 精简：改为四个基础文件、最小要求和投入使用范例。
+  2026-09-01 接入：增加最小战斗手牌、出牌和牌堆查看链路。
+
+相关规则：
+  Documentation/rules/260825-rule-ui-framework.txt
+
+------------------------------------------------------------------------
+1. 当前只需要 review 四个文件
+------------------------------------------------------------------------
+
+Assets/Scripts/ui/core/IUIViewModel.cs
+  ViewModel 的标记接口。具体 ViewModel 必须只提供只读显示数据。
+
+Assets/Scripts/ui/core/UIView.cs
+  四类根 Prefab 的共同基类，负责 Render、输入开关和打开关闭动画入口。
+
+Assets/Scripts/ui/core/UIManager.cs
+  场景组件，负责四层 Canvas、Page 替换、HUD、Modal 栈和 Overlay。
+
+Assets/Scripts/ui/loading/AddressablesUIViewLoader.cs
+  加载根 Prefab，并保证实例与 Addressables 句柄成对释放。
+
+CardView 不属于这四个基础文件。CardView 是 BattleHUD 内部组件，后续与真实战斗
+ViewModel 一起改造。
+
+------------------------------------------------------------------------
+2. 最小管理关系
+------------------------------------------------------------------------
+
+UIManager
+  -> Page
+  -> HUD
+     -> CardView、EnergyView、EnemyView
+  -> Modal stack
+  -> Overlay
+
+UIManager 管理能够独立打开和关闭的根 UI。
+Page/HUD 管理自己的内部组件。
+
+同一类型的 CardView 可以同时存在多个，并且需要手牌顺序和布局信息；这些信息属于
+HandView/BattleHUD，不应进入 UIManager。
+
+------------------------------------------------------------------------
+3. 场景准备
+------------------------------------------------------------------------
+
+1. 创建根 GameObject，挂载 UIManager。
+2. 在根对象下创建四个 Canvas：
+     PageLayer
+     HudLayer
+     ModalLayer
+     OverlayLayer
+3. 把四个 Canvas 绑定到 UIManager。
+4. 每个根 UI Prefab 的根对象必须包含：
+     UIView 的具体子类
+     CanvasGroup
+   Toast 等不拦截输入的 View 将 UIView.blocksRaycasts 设为 false。
+5. 把根 Prefab 加入 Addressables，例如：
+     UI/HomePage
+     UI/BattlePage
+     UI/BattleHUD
+     UI/SettingsDialogModal
+     UI/ConfirmDialogModal
+     UI/LoadingOverlay
+
+------------------------------------------------------------------------
+4. Page 最小范例
+------------------------------------------------------------------------
+
+ViewModel：
+
+  public sealed class HomePageViewModel : IUIViewModel
+  {
+      public string Title { get; }
+
+      public HomePageViewModel(string title)
+      {
+          Title = title;
+      }
+  }
+
+View：
+
+  public sealed class HomePage : UIView
+  {
+      [SerializeField] private TMP_Text titleText;
+
+      protected override void Render(IUIViewModel viewModel)
+      {
+          HomePageViewModel model = viewModel as HomePageViewModel;
+          MyAssert.Assert(model != null, "HomePage requires HomePageViewModel.");
+          if (model == null)
+          {
+              return;
+          }
+
+          titleText.text = model.Title;
+      }
+  }
+
+打开：
+
+  HomePageViewModel model = new HomePageViewModel("CustomDBG");
+  UIManager.Instance.OpenPage("UI/HomePage", model);
+
+打开另一个 Page 会自动关闭当前 Page，以及当前 Page 的 HUD 和 Modal：
+
+  BattlePageViewModel model = presenter.CreateBattlePageViewModel();
+  UIManager.Instance.OpenPage("UI/BattlePage", model);
+
+------------------------------------------------------------------------
+5. HUD 范例
+------------------------------------------------------------------------
+
+Page 打开完成后再打开 HUD。回调执行前 UIManager 已经解除操作锁：
+
+  UIManager.Instance.OpenPage("UI/BattlePage", battlePageViewModel, page =>
+  {
+      if (page == null)
+      {
+          return;
+      }
+
+      UIManager.Instance.ShowHud("UI/BattleHUD", battleHudViewModel);
+  });
+
+BattlePage 被替换或关闭时，UIManager 会关闭全部当前 HUD。
+BattleHUD 自己负责 CardView 集合的创建、布局、复用和清理。
+
+------------------------------------------------------------------------
+6. Modal 栈范例
+------------------------------------------------------------------------
+
+  UIManager.Instance.PushModal("UI/SettingsDialogModal", settingsViewModel);
+
+在 SettingsDialog 上再打开确认框：
+
+  UIManager.Instance.PushModal("UI/ConfirmDialogModal", confirmViewModel);
+
+此时 SettingsDialog 仍显示，但不能接收输入。关闭栈顶：
+
+  UIManager.Instance.PopModal();
+
+ConfirmDialog 被释放，SettingsDialog 恢复输入。
+
+第一阶段没有 CanDismiss 配置。返回键是否调用 PopModal，由页面 Controller 决定。
+
+------------------------------------------------------------------------
+7. Overlay 范例
+------------------------------------------------------------------------
+
+  UIManager.Instance.ShowOverlay("UI/LoadingOverlay", loadingViewModel, overlay =>
+  {
+      // 保存 overlay 引用，网络请求结束后用于关闭。
+  });
+
+  UIManager.Instance.HideOverlay(loadingOverlay);
+
+Overlay 不进入 Modal 栈，并且默认跨 Page 保留。后打开的 Overlay 显示在更上方。
+
+------------------------------------------------------------------------
+8. CardView 输入范例
+------------------------------------------------------------------------
+
+CardView 只保存 CardViewModel 中的稳定 CardInstanceId。拖拽完成时产生用户意图：
+
+  public readonly struct PlayCardIntent
+  {
+      public readonly CardInstanceId Card;
+
+      public PlayCardIntent(CardInstanceId card)
+      {
+          Card = card;
+      }
+  }
+
+  public event Action<PlayCardIntent> PlayRequested;
+
+BattlePresenter 订阅 PlayRequested，并把 Intent 转换成 BattleCommand：
+
+  private void HandlePlayCard(PlayCardIntent intent)
+  {
+      BattleCommand command = CreatePlayCardCommand(intent);
+      BattleCommandApi.Submit(command, battleCommandManager);
+  }
+
+CardView 不扣能量、不移动牌堆，也不把动画完成当作出牌成功。业务状态变化后，
+BattlePresenter 重新生成 ViewModel，再刷新 BattleHUD。
+
+当前最小版本由 BattlePresenter 暂时选择第一个敌人为目标。需要玩家选定目标的卡牌应在
+后续由战斗 UI 产生目标选择结果；该扩展点已在代码中标记 TODO。
+
+------------------------------------------------------------------------
+9. 第一版限制
+------------------------------------------------------------------------
+
+  - 地址使用 string；拼写错误在加载时发现。
+  - 所有根 UI 关闭后释放；没有缓存。
+  - HUD 和 Modal 都属于当前 Page；没有 Global Modal。
+  - Overlay 默认全局。
+  - 同时只能执行一个根 UI 操作；忙碌时新请求返回 false。
+  - 没有操作排队、取消和并行动画。
+  - 没有 UICatalog、UIKey、OwnerScope、UIState 或统一 Intent 接口。
+
+这些限制让第一轮 review 集中在真实数据流和生命周期。只有真实页面投入使用后发现
+重复需求，才增加对应类型。
+
+------------------------------------------------------------------------
+10. 推荐 review 顺序
+------------------------------------------------------------------------
+
+1. IUIViewModel：确认 UI 数据边界。
+2. UIView：确认 Render、输入和动画生命周期。
+3. AddressablesUIViewLoader：确认加载与释放配对。
+4. UIManager：确认 Page、HUD、Modal、Overlay 的顺序。
+5. 使用 HomePage -> BattlePage 和 SettingsDialog -> ConfirmDialog 做场景验证。
+
+------------------------------------------------------------------------
+11. 最小战斗卡牌 UI 接入
+------------------------------------------------------------------------
+
+代码职责：
+
+  BattleUIController
+    场景入口，持有 BattlePresenter；战斗初始化完成后调用 ShowBattleHud()。
+
+  BattlePresenter
+    把 BattlePlayerState 映射为只读 ViewModel；把 PlayCardIntent 转换为
+    BattleCommand，并在命令与 Action 队列完成后刷新 HUD。
+
+  BattleHUD
+    显示能量、抽牌堆数量、弃牌堆数量；转发 HandView 的出牌意图与牌堆按钮意图。
+
+  HandView
+    创建 CardView、计算扇形布局、保留拖拽占位并检测是否投入出牌区域。
+
+  CardPileDialogModal
+    Modal 根界面，只负责标题、关闭按钮和弹窗生命周期；它不改变牌堆内容。
+
+  CardPileListView
+    在 ScrollRect 中以 GridLayoutGroup 只读显示抽牌堆或弃牌堆快照，并管理
+    CardView 的创建和清理。
+
+Prefab 最小绑定：
+
+  1. UI/BattleHUD 根对象添加 BattleHUD、CanvasGroup，并绑定：
+       HandView、energyText、drawPileCountText、discardPileCountText、
+       drawPileButton、discardPileButton。
+  2. HandView 绑定 cardRoot、playDropArea 和 CardViewPrefab。
+  3. UI/CardPileDialogModal 根对象添加 CardPileDialogModal、CanvasGroup，并绑定：
+       titleText、cardPileListView、closeButton。
+     CardPileListView 绑定 ScrollRect、Content RectTransform 和 CardViewPrefab。
+     ScrollRect 的 Content 应绑定同一个 Content RectTransform；Content 添加：
+       GridLayoutGroup
+       ContentSizeFitter（Vertical Fit = Preferred Size）
+     Viewport 添加 RectMask2D，ScrollRect 关闭 Horizontal、开启 Vertical。
+  4. 将以上两个根 Prefab 分别登记为 Addressables：
+       UI/BattleHUD
+       UI/CardPileDialogModal
+  5. 场景对象添加 BattleUIController，绑定 UnityBoostrap；进入战斗且 BattlePage
+     已打开后调用 ShowBattleHud()。
+
+CardViewPrefab 顶层已经改为 RectTransform，并显式绑定 CardView.root，因此既可以由
+HandView 自行定位，也可以作为 GridLayoutGroup 的直接布局元素。
+
+当前范围与扩展点：
+
+  - 出牌通过现有 BattleCommandApi 执行，UI 不直接扣能量或移动卡牌。
+  - 抽牌堆和弃牌堆当前只负责计数与只读查看。
+  - CardView 每次刷新会重建；对象池与按 CardInstanceId 增量更新已标记 TODO。
+  - 普通牌堆使用可滚动网格；只有实际数据证明超大牌堆存在时才增加虚拟化。
+  - 目标选择、抽牌/弃牌/手牌上限动画已标记 TODO。
+  - DrawCardAction 仍是战斗业务层的既有限制，不由 UI 层补写业务规则。
+
+========================================================================

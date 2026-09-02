@@ -1,5 +1,7 @@
 ﻿using cards.definition;
 using cards.instance;
+using combat;
+using enums;
 using player;
 
 namespace gameStates.persistant
@@ -15,15 +17,15 @@ namespace gameStates.persistant
             
             for (int i = 0; i < playerNum; i++)
             {
-                PlayerInfos[i] = new PlayerInfo(initHp, initEnergiesLimit, initGold);
+                PlayerInfos[i] = new PlayerInfo(initHp, initEnergiesLimit, initGold, new ActionEntityId(EnumEntityType.Player, (uint)i));
                 CardDeck curDeck = PlayerInfos[i].CardDeck;
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
-                curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("攻击"))); // Test
-                curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("防御"))); // Test
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("防御"))); // Test
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("防御"))); // Test
                 curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("剑柄打击"))); // Test
+                curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("残影"))); // Test
+                curDeck.AddCardToDeck(cardDefinitionManager.Get(new CardDefinitionId("残影"))); // Test
             }
         }
 

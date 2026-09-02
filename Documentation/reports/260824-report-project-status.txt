@@ -1,0 +1,193 @@
+========================================================================
+  报告：CustomDBG 项目现状盘点
+  生成日期：2026-08-24
+========================================================================
+
+修订记录：
+  2026-08-24 初稿：基于当前工作树、Git 历史、Unity 配置、源码和本地构建结果，
+             记录项目恢复开发时的真实状态、已完成能力、主要缺口与建议顺序。
+
+------------------------------------------------------------------------
+1. 结论
+------------------------------------------------------------------------
+
+当前项目是【可编译的战斗内核原型】，还不是【可连续游玩的游戏版本】。
+
+已经形成的主干能力：
+  - Unity 6.4 项目和 2D/URP 基础工程；
+  - JSON 卡牌定义 -> 运行时 Definition -> 每局 CardInstance 的数据链；
+  - 持久状态 / 战斗临时状态分层；
+  - BattleCommand 排队、GameAction 串行结算；
+  - 分随机域的种子与稳定洗牌；
+  - AfterCardPlayed Hook 和 Afterimage 示例；
+  - 能量消耗、单体伤害、格挡、出牌后进弃牌堆等原型逻辑。
+
+目前能够做的是：打开 SampleScene，通过 Q/S/W/E 测试键进入战斗、抽牌、
+提交出牌命令和附加残影 Hook。它仍是程序员测试入口；UI 没有绑定状态，回合、
+敌人、胜负、选牌、完整牌堆效果、构筑流程和真正的网络层都没有闭环。
+
+恢复开发时最先要做的不是继续加卡牌，而是先固定一个干净、能由测试复现的
+基线，再完成一条最小战斗垂直切片。详细任务见：
+  Documentation/tasks/260824-task-project-recovery-roadmap.txt
+
+------------------------------------------------------------------------
+2. 盘点基线
+------------------------------------------------------------------------
+
+2.1 引擎与规模
+  - ProjectSettings/ProjectVersion.txt:1-2 指定 Unity 6000.4.9f1。
+  - Assets/Scripts 下共 78 个 C# 文件，约 2323 行。
+  - 没有 Assets 下的 asmdef/asmref；玩法代码仍在单一 Assembly-CSharp。
+  - Packages/manifest.json:19 已安装 Unity Test Framework 1.6.0，但 Assets 和
+    Packages 中没有项目自己的测试源码或测试 asmdef。
+  - 仓库没有 .github CI 配置，也没有命令行构建脚本。
+
+2.2 Git 状态（仅代表 2026-08-24 的本地引用，未执行网络 fetch）
+  - 当前分支：dev-Yunbin；HEAD = c2d7823（2026-07-20）。
+  - 相对本地 main：dev-Yunbin 独有 4 个提交，main 独有 8 个提交；历史已分叉。
+  - 当前分支没有 upstream tracking 配置。
+  - 有 3 个【已暂存、未提交】的改动：
+      Assets/Scripts/cards/instance/CardPileManager.cs
+      Assets/Scripts/combat/BattleCommand.cs
+      Assets/Scripts/mono/UnityBoostrap.cs
+    合计 +13/-2；核心内容是增加 BattleCommand.PlayCard 工厂并让测试入口使用它，
+    另加 CardPileManager 重命名 Todo。git diff --cached --check 无空白错误。
+  - 这些改动的文件时间在 2026-07-20 至 2026-07-21，基本可以视为上次中断点；
+    在确认意图前不应丢弃或混入大改。
+
+2.3 验证结果
+  - 执行 dotnet build CustomDBG.sln --no-restore：成功，0 error、2 warning。
+    两个 warning 都是 Unity 生成工程中 System.Net.Http 4.1.2/4.2.0 引用冲突，
+    不是本项目 C# 编译错误。
+  - 使用项目指定的 Unity 6000.4.9f1 启动 batchmode：完成 Mono assembly reload，
+    日志未出现 error CS；随后 Licensing Client 反复断线，批处理无法正常完成，
+    已手动停止。因此【Unity Editor 完整导入 + PlayMode 冒烟】仍未被验证。
+  - Assets/StreamingAssets/cards.json 可被解析：5 张唯一 idName 卡、7 个 Effect、
+    无负 energyCost。
+
+------------------------------------------------------------------------
+3. 已落地的系统
+------------------------------------------------------------------------
+
+3.1 卡牌数据
+  - UnityBoostrap 从 StreamingAssets/cards.json 读入文本
+    （Assets/Scripts/mono/UnityBoostrap.cs:18-24）。
+  - CardDefinitionManager 用 Newtonsoft + StringEnumConverter 建立 Definition；
+    CardPileManager.CopyFromDeck 为每场战斗复制新的 CardInstance，避免战斗内改动
+    污染持久牌组（Assets/Scripts/cards/definition/CardDefinitionManager.cs:17-26；
+    Assets/Scripts/cards/instance/CardPileManager.cs:14-27）。
+  - 当前只有攻击、防御、剑柄打击、残影、连斩 5 个卡牌定义；每名测试玩家的
+    初始牌组硬编码为 7 张，且未包含连斩
+    （Assets/Scripts/gameStates/persistant/GamePlayerState.cs:20-27）。
+
+3.2 战斗状态与牌堆
+  - BattlePlayerState 将持久 Hp/Id 转发到 PlayerInfo，并持有战斗期的格挡、能量、
+    四个牌堆和 Hook（Assets/Scripts/gameStates/transient/BattlePlayerState.cs:12-50）。
+  - EnterBattle 会重建敌人、清空战斗牌堆/Hook、复制牌组、洗牌、恢复能量
+    （Assets/Scripts/systems/BattleApi.cs:15-29）。
+  - BattlePileApi 已有填充、整堆移动、稳定洗牌、抽牌和弃牌堆重洗逻辑
+    （Assets/Scripts/systems/BattlePileApi.cs:13-88）。
+
+3.3 命令、action 与 Hook
+  - 输入汇入 BattleCommandApi.Submit；Pump 只在 action 队列稳定点取下一条命令，
+    已体现“命令排队、单条命令全部结算后再处理下一条”的设计
+    （Assets/Scripts/systems/BattleCommandApi.cs:20-55）。
+  - 现在只有 PlayCard 一种命令（Assets/Scripts/enums/EnumCommandType.cs:3-7）。
+  - 出牌会依次排入耗能、卡牌效果、进弃牌堆，再触发 AfterCardPlayed Hook
+    （Assets/Scripts/systems/BattleCommandApi.cs:100-119）。
+  - Hook 监听者按玩家/道具/战斗状态/卡/敌人现场收集，命中后把 Effect 翻译成
+    普通 GameAction 入队（Assets/Scripts/hook/HookManager.cs:17-43；
+    Assets/Scripts/hook/HookSystem.cs:18-41）。
+
+------------------------------------------------------------------------
+4. 当前主要缺口与风险
+------------------------------------------------------------------------
+
+4.1 P0：开发基线未固定
+  - 分支分叉、无 upstream、3 个 staged 改动同时存在；继续开发前必须先决定这
+    3 个改动的提交边界，再谨慎合并 main 中有价值的文档修订。
+  - 文档明显漂移：CLAUDE.md:18-19 仍说 systems/BattleSystem 是 skeleton，实际
+    已没有 BattleSystem.cs；CLAUDE.md:34-35 仍写 ScriptableObject 入口，实际已改
+    为 StreamingAssets JSON。main 上有一轮清理，但它早于当前分支最新 Hook 实现，
+    不能直接把 main 的 Hook 状态说明覆盖回来。
+  - 旧任务 Documentation/tasks/260623-task-translate-cardeffect-and-normalize-actions.txt
+    声称已新增 BattleContext，而当前 ActionExecutor 仍直接传 BattleState +
+    BattlePlayerState（Assets/Scripts/action/ActionExecutor.cs:20-39）。
+
+4.2 P0：没有可靠的运行/构建入口
+  - ProjectSettings/EditorBuildSettings.asset:8-13 中 SampleScene、InitialScene
+    都是 enabled: 0；当前 Player Build 没有启用场景。
+  - SampleScene 有 UnityBoostrap，InitialScene 只有相机；SampleScene 仍保存旧字段
+    allCardLibrarySo，表明 JSON 改造后场景还没有完整清理/重存。
+  - SampleScene 放了 10 个 CardView，但 CardView.Bind 是空方法
+    （Assets/Scripts/ui/CardView.cs:36-40），没有从真实手牌生成/刷新 UI，也没有
+    由拖拽向 BattleCommandApi 提交命令。
+  - Unity batchmode 被本机许可证阻断；必须在 Editor 中完成一次真实 PlayMode 冒烟。
+
+4.3 P0：战斗正确性漏洞
+  - CanPlayCard 只校验回合、卡是否存在/在手中、能量；不校验 Target
+    （Assets/Scripts/systems/BattleCommandApi.cs:59-84）。ActionEntityId 的默认值
+    恰好是 Player#0；恶意或错误的 SelectedEnemy 命令可把默认目标解析为玩家。
+  - CardPileManager.AddCard 创建 CardInstance 后直接返回 Id，没有放入 Dictionary
+    （Assets/Scripts/cards/instance/CardPileManager.cs:31-35）。一旦获得卡牌功能调用它，
+    新卡会“成功返回 Id 但实际不存在”。
+  - HookManager 遍历 CardPileManager.Dictionary.Values
+    （Assets/Scripts/hook/HookManager.cs:34-37），与项目要求的固定 Hook 顺序冲突；
+    应按稳定 CardInstanceId 顺序遍历。
+  - EnterBattle 没有显式清理 GameActionManager.ActionQueue、BattleCommandManager.Pending
+    或重置 ActionId；异常中断上一场时可能把旧工作带入新战斗。
+
+4.4 P1：战斗还没有闭环
+  - DrawCardAction、ExhaustCardAction、DiscardHandCardAction 目前只记日志
+    （对应 Execute：DrawCardAction.cs:21-25、ExhaustCardAction.cs:23-27、
+    DiscardHandCardAction.cs:13-17）。
+  - DamageAction 直接扣 Hp，格挡不吸收伤害，也没有死亡处理
+    （Assets/Scripts/action/gameEffectActions/DamageAction.cs:24-32）。
+  - EffectApi 的 AllEnemy、RandomEnemy、SelectedAlly、AllAllies 和 Exhaust 目标解析
+    尚未实现（Assets/Scripts/systems/EffectApi.cs:40-63）。
+  - ApplyStatus 对 Weak/Vulnerable/Power 只写日志；Afterimage 的 Value/层数没有进入
+    模板，重复施加只会增加多个固定 +2 的监听者。
+  - 没有初始自动抽牌、结束回合、敌人回合、回合清理、胜负判定、战斗退出。
+  - HandCardChooseAction 直接等待对象方法回调，没有 ChoiceCommand 和联机超时；
+    联机时可卡住全局 action 队列。
+  - ActionExecutor 只携带“发命令的玩家”而不是完整 BattleContext，导致抽牌 action
+    拿不到 RandomManager，也不适合敌人/跨玩家 action。
+
+4.5 P1/P2：联机仍停留在架构约束
+  - manifest 只有 Multiplayer Center，没有 Netcode/Transport 运行时依赖。
+  - 没有网络 host/client、命令序列化、回放日志、快照、状态 hash、重连或掉线处理。
+  - 只有 PlayCard 命令，玩家选择和结束回合尚未命令化。
+  - 绝大多数战斗状态没有明确的序列化 DTO/attribute；System.Random 内部状态也不能
+    直接作为快照。当前代码体现了确定性方向，但还没有证明跨端一致。
+  - cards.json 没有内容版本/hash 握手；不同客户端可加载不同卡牌数据。
+
+4.6 P2：游戏主体系统仍是占位
+  - EnemyDefinitionManager、MapNode、Item/Enemy definition 基本为空；敌人是
+    BattleApi 中硬编码的 50 Hp 测试对象。
+  - 没有地图、奖励、商店、牌组编辑、存档、敌人 AI、道具获得流程。
+  - 卡图 imageName 全空，CardView 未绑定，Addressables 已安装但尚未进入内容流。
+  - StreamingAssets 使用 File.ReadAllText；Android/WebGL 需要 UnityWebRequest
+    （Assets/Scripts/mono/UnityBoostrap.cs:18-22）。
+
+------------------------------------------------------------------------
+5. 推荐推进顺序
+------------------------------------------------------------------------
+
+第一阶段：恢复基线
+  处理 staged 改动和分支分叉；修正文档；启用明确的启动/构建场景；解决 Unity
+  许可证问题并完成 Editor 冒烟；建立最小 EditMode 测试集。
+
+第二阶段：最小战斗垂直切片
+  修复目标校验、AddCard 和 Hook 顺序；引入完整 BattleContext；补齐抽牌/弃牌/
+  消耗/格挡/死亡；实现开始回合 -> 玩家出牌 -> 结束回合 -> 敌人行动 -> 胜负；
+  让 CardView 从真实状态生成并提交 PlayCard 命令。
+
+第三阶段：联机可验证化
+  先做网络技术选型记录，再实现 listen server 的命令传输、主机排序、回放日志、
+  内容 hash、状态 hash 和确定性对拍；随后实现 ChoiceCommand、超时和重连策略。
+
+第四阶段：内容与局外循环
+  完成敌人/道具/地图/奖励/存档数据链，再扩卡和表现。否则现在扩出的内容会不断
+  撞上仍未稳定的 action、目标、回合和序列化接口。
+
+========================================================================

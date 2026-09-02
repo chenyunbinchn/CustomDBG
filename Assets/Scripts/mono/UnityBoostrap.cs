@@ -5,6 +5,8 @@ using gameStates;
 using gameStates.transient;
 using hook;
 using systems;
+using tools.assert;
+using ui.controllers;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -15,6 +17,8 @@ namespace mono
         [SerializeField] private string cardsJsonFileName = "cards.json";
         public StateManager StateManager = new StateManager();
 
+        private BattleUIController _battleUIController;
+
         private void Start()
         {
             // Note: Card data is JSON under StreamingAssets (replaces the old ScriptableObject library).
@@ -22,6 +26,9 @@ namespace mono
             string cardsJson = File.ReadAllText(Path.Combine(Application.streamingAssetsPath, cardsJsonFileName));
             // Todo: Base on room's player number set playerNum
             StateManager.Init(cardsJson, this, 4);
+            _battleUIController = GetComponent<BattleUIController>();
+            MyAssert.Assert(_battleUIController != null,
+                "UnityBoostrap requires BattleUIController for the current battle UI test flow.");
             Debug.Log("MainSeed: " + StateManager.GameState.SeedManager.MainSeed + "\n");
         }
 
@@ -29,8 +36,7 @@ namespace mono
         {
             // Note: The command pump — the ONLY place battle commands get executed. Runs at most one
             //       command per frame, and only at quiescence (action queue drained).
-            BattleCommandApi.Pump(StateManager.GameState.BattleCommandManager, StateManager.BattleState,
-                StateManager.GameState.GameActionManager, StateManager.GameState.ActionExecutor);
+            BattleCommandApi.Pump(StateManager);
 
             // Test code
             if (Keyboard.current == null)
@@ -42,6 +48,7 @@ namespace mono
             {
                 BattleApi.EnterBattle(StateManager.BattleState, StateManager.GamePlayerState, StateManager.BattlePlayerStates,
                     StateManager.GameState.RandomManager);
+                _battleUIController?.OpenBattleUi();
             }
 
             if (Keyboard.current.wKey.wasPressedThisFrame)
@@ -54,6 +61,7 @@ namespace mono
                     ActionEntityId target = StateManager.BattleState.EnemyList.Count > 0
                         ? StateManager.BattleState.EnemyList[0].Id
                         : default;
+
                     BattleCommand command = new BattleCommand(EnumCommandType.PlayCard, player0.Id, player0.HandCards[0], target);
                     BattleCommandApi.Submit(command, StateManager.GameState.BattleCommandManager);
                 }
@@ -67,15 +75,23 @@ namespace mono
             if (Keyboard.current.sKey.wasPressedThisFrame)
             {
                 BattlePileApi.DrawCards(StateManager.BattlePlayerStates[0], 3, StateManager.GameState.RandomManager);
+                _battleUIController?.RefreshBattleHud();
             }
 
+            // Todo: Remove Afterimage test code.
             if (Keyboard.current.eKey.wasPressedThisFrame)
             {
                 // Test: apply the Afterimage status via the registry (after each card played, +2 block).
                 BattlePlayerState player = StateManager.BattlePlayerStates[0];
                 if (StatusRegistry.TryGetTemplate(EnumStatusType.Afterimage, out HookListener template))
                 {
-                    player.HookListeners.Add(new HookListener { Host = player, Hook = template.Hook, Effect = template.Effect });
+                    player.HookListeners.Add(new HookListener
+                    {
+                        Owner = player.Id,
+                        Hook = template.Hook,
+                        Filter = template.Filter,
+                        Effect = template.Effect
+                    });
                     Debug.Log($"[Test] Applied Afterimage. Listeners={player.HookListeners.Count}, Block={player.Block}");
                 }
             }

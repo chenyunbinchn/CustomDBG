@@ -49,17 +49,23 @@ once at startup, looked up by Id, and **never mutated during play**. An Instance
 per-run object that references a Definition and carries the mutable per-entity state.
 
 **Persistent vs transient state** (`gameStates/persistant` vs `gameStates/transient`) —
-the key lifecycle split. Persistent state (Hp, gold, energy limits; the deck; seeds)
-survives across battles and is the save/replay source. Transient state (the card piles,
-enemies, energy, block, status, turn) is rebuilt at battle start and discarded at battle
-end. Litmus test: a value written back when a battle ends is persistent; otherwise it is
-transient. Do not write persistent state mid-battle (the one sanctioned exception is
-`RandomManager`).
+the key lifecycle split. Persistent (`PlayerState`: Hp, gold, energy limits; the deck in
+`CardInstanceManager`; seeds) survives across battles and is the save/replay source.
+Transient (`BattleState`, `BattleCardState`: the five card piles, enemies, energy, block,
+status, turn) is rebuilt at battle start and discarded at battle end. Litmus test: a value
+that must survive the battle is persistent; otherwise it is transient. **Battle code reaches
+persistent state only through the combat-actor facade**: `BattlePlayerState` implements
+`ICombatActor` and forwards `Hp`/`Id` to its `PlayerInfo`, which is the single storage — it
+holds no copy, so there is no second source of truth and no "write back at battle end" step.
+Every other persistent field (gold, deck, energy limits) stays off limits mid-battle;
+`RandomManager` is the one other sanctioned exception.
 
-**Data-driven effects.** An entity's behavior is data — an array of effect structs
-interpreted by enum dispatch, never per-card subclasses.
+**Data-driven effects.** A card's behavior is a `CardEffect[]`, where each `CardEffect`
+is a struct `{EffectType, TargetType, StatusType, Value}`. Effects are interpreted by enum
+dispatch, not per-card subclasses.
 
-**Typed Id structs.** Every entity is keyed by a `readonly struct` Id with `IEquatable`
+**Typed Id structs.** Every entity is keyed by a `readonly struct` Id (`CardDefinitionId`
+wraps a string name, `CardInstanceId` wraps a uint, `EnemyDefinitionId`…) with `IEquatable`
 + operator overloads, used as dictionary keys. Never pass raw strings/ints as identifiers.
 
 **Managers own collections and are the access point.** Lookups go through `Manager.Get(id)`,

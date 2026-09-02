@@ -2,7 +2,8 @@ namespace enums
 {
     public enum EnumPlayCardResult
     {
-        Ok = 0,
+        InvalidError = 0,
+        Ok,
         NotPlayerTurn,
         CardNotFound,
         CardNotInHand,

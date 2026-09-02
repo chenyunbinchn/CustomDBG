@@ -30,8 +30,8 @@ namespace gameStates
             BattlePlayerStates = new BattlePlayerState[PlayerNum];
             for (int i = 0; i < PlayerNum; i++)
             {
-                BattlePlayerStates[i] = new BattlePlayerState();
-                BattlePlayerStates[i].Id = new ActionEntityId(EnumEntityType.Player, (uint)i);
+                // Note: the battle-side facade forwards Hp / Id to this player's persistent PlayerInfo.
+                BattlePlayerStates[i] = new BattlePlayerState(GamePlayerState.PlayerInfos[i]);
             }
             // Note: EntityApi.Resolve finds players by indexing this same array through BattleState.
             BattleState.Players = BattlePlayerStates;

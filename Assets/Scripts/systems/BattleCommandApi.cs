@@ -3,7 +3,9 @@ using action.gameEffectActions;
 using cards.instance;
 using combat;
 using enums;
+using gameStates;
 using gameStates.transient;
+using hook;
 using tools.assert;
 using UnityEngine;
 
@@ -24,9 +26,13 @@ namespace systems
         // Note: Call once per frame. Authoritative validation happens HERE (dequeue time), not at
         //       submit — an earlier command may have changed what is legal. An invalid command is
         //       dropped; every end drops it identically (same state + same rules = same verdict).
-        public static void Pump(BattleCommandManager commandManager, BattleState battleState,
-            GameActionManager actionManager, ActionExecutor actionExecutor)
+        //       Takes StateManager because firing hooks needs to reach every listener host.
+        public static void Pump(StateManager stateManager)
         {
+            GameActionManager actionManager = stateManager.GameState.GameActionManager;
+            ActionExecutor actionExecutor = stateManager.GameState.ActionExecutor;
+            BattleCommandManager commandManager = stateManager.GameState.BattleCommandManager;
+
             if (actionExecutor.IsRunning || actionManager.ActionQueue.Count > 0)
             {
                 return;
@@ -40,7 +46,7 @@ namespace systems
             switch (command.Type)
             {
                 case EnumCommandType.PlayCard:
-                    ExecutePlayCard(command, battleState, actionManager, actionExecutor);
+                    ExecutePlayCard(command, stateManager);
                     break;
                 default:
                     MyAssert.Assert(false, $"Unhandled EnumCommandType: {command.Type}");
@@ -78,9 +84,11 @@ namespace systems
             return EnumPlayCardResult.Ok;
         }
 
-        private static void ExecutePlayCard(BattleCommand command, BattleState battleState,
-            GameActionManager actionManager, ActionExecutor actionExecutor)
+        private static void ExecutePlayCard(BattleCommand command, StateManager stateManager)
         {
+            BattleState battleState = stateManager.BattleState;
+            GameActionManager actionManager = stateManager.GameState.GameActionManager;
+
             EnumPlayCardResult result = CanPlayCard(command, battleState);
             if (result != EnumPlayCardResult.Ok)
             {
@@ -101,10 +109,14 @@ namespace systems
                 EffectApi.Translate(cardInstance.Effects[i], command.Player, command.Target, actionManager);
             }
             actionManager.Add(new PlayedCardToDiscardAction(command.Card, actionManager.NextId(), EnumActionStatus.WaitingForExecution));
-            // Todo: hook — Fire(AfterCardPlayed, source: command.Player) here once hook dispatch is rebuilt.
+
+            // Note: Reactions are queued behind the card's own actions (tail insert), then drained by the
+            //       same serial resolution — they are ordinary GameActions, not a special kind.
+            HookSystem.Fire(new HookEvent(EnumHookType.AfterCardPlayed, command.Player, command.Target, 0),
+                stateManager.GameState.HookManager, stateManager, actionManager);
 
             Debug.Log($"[Command] PlayCard: player#{command.Player.Id} plays {player.PileManager.DescribeCard(command.Card)} -> {actionManager.ActionQueue.Count} actions queued");
-            actionExecutor.Kick(actionManager, battleState, player);
+            stateManager.GameState.ActionExecutor.Kick(actionManager, battleState, player);
         }
     }
 }

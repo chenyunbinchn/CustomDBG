@@ -1,0 +1,57 @@
+========================================================================
+  任务：实现最小战斗卡牌 UI
+  状态：done
+========================================================================
+
+修订记录：
+  2026-09-01 初版：实现出牌、抽牌堆查看和弃牌堆查看的最小 UI 链路。
+  2026-09-01 改进：将牌堆固定网格改为职责独立的可滚动网格。
+
+------------------------------------------------------------------------
+1. 已实现
+------------------------------------------------------------------------
+
+  - BattleHudViewModel、HandViewModel、CardViewModel、CardPileViewModel。
+  - BattleHUD 显示能量、手牌、抽牌堆数量和弃牌堆数量。
+  - HandView 管理 CardView 集合、扇形布局、拖拽占位和出牌区域判定。
+  - CardView 仅渲染 ViewModel，并把拖拽手势上报给 HandView。
+  - BattlePresenter 把 PlayCardIntent 转为 BattleCommandApi 调用。
+  - 命令和 Action 队列稳定后，BattlePresenter 使用最新状态刷新 HUD。
+  - CardPileDialogModal 通过 Modal 栈只读展示抽牌堆或弃牌堆快照。
+  - CardPileListView 使用 ScrollRect、GridLayoutGroup 和 ContentSizeFitter 管理滚动网格。
+  - CardViewPrefab 顶层已迁移为 RectTransform，并显式绑定 CardView.root。
+  - 缺失卡图时允许显示无图卡牌，不再强制读取不存在的图片。
+
+------------------------------------------------------------------------
+2. 需要在 Unity Editor 中绑定
+------------------------------------------------------------------------
+
+  - 创建并绑定 UI/BattleHUD Prefab。
+  - 创建并绑定 UI/CardPileDialogModal Prefab。
+  - 将两个 Prefab 加入 Addressables。
+  - 场景添加 BattleUIController，绑定 UnityBoostrap，并在战斗初始化后调用
+    ShowBattleHud()。
+  - CardPileDialogModal 的 Viewport、Content、GridLayoutGroup 和 ContentSizeFitter。
+
+详细字段见：
+  Documentation/documentations/260826-ui-design.txt
+
+------------------------------------------------------------------------
+3. 后续 TODO
+------------------------------------------------------------------------
+
+  - CardView 对象池和按 CardInstanceId 增量更新。
+  - 卡牌目标选择，而不是默认选择第一个敌人。
+  - 抽牌、弃牌、出牌等待和手牌上限动画。
+  - 数据量证明有必要时增加大牌堆虚拟化。
+  - DrawCardAction 的战斗业务实现。
+
+------------------------------------------------------------------------
+4. 验证
+------------------------------------------------------------------------
+
+  - Assembly-CSharp.csproj 编译通过：0 errors。
+  - 存在 2 条项目原有的 System.Net.Http 程序集版本冲突警告。
+  - Prefab 和场景绑定需要在 Unity Editor 中完成后进行 Play Mode 验证。
+
+========================================================================

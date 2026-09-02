@@ -1,6 +1,7 @@
 ﻿using action;
 using combat;
 using enums;
+using hook;
 using random;
 using UnityEngine;
 
@@ -13,6 +14,8 @@ namespace gameStates.persistant
         public RandomManager RandomManager = new RandomManager();
         public GameActionManager GameActionManager = new GameActionManager();
         public BattleCommandManager BattleCommandManager = new BattleCommandManager();
+        // Note: Holds no listeners of its own — just the scratch list it refills on every Fire.
+        public HookManager HookManager = new HookManager();
         public ActionExecutor ActionExecutor;
         
         public bool IsInBattle = false;

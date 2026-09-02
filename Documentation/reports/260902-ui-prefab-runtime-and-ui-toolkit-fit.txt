@@ -1,0 +1,54 @@
+========================================================================
+  UI Prefab 跑通条件与 UI Toolkit 适配现状
+  日期：2026-09-02
+========================================================================
+
+1. 当前阻塞
+
+  - SampleScene 中没有 UIManager 和 BattleUIController。
+  - 项目中没有具体 Page 类或 Page Prefab。
+  - 项目中没有 BattleHUD 和 CardPileDialogModal Prefab。
+  - Addressables 当前没有 UI/BattlePage、UI/BattleHUD、UI/CardPileDialogModal。
+  - UIManager.ShowHud 和 PushModal 都要求先存在活动 Page。
+
+因此仅创建 ScrollRect 不能跑通完整链路。
+
+2. 最小启动顺序
+
+  StateManager.Init
+    -> BattleApi.EnterBattle
+    -> UIManager.OpenPage("UI/BattlePage", pageViewModel)
+    -> BattleUIController.ShowBattleHud()
+    -> 点击抽牌堆或弃牌堆
+    -> UIManager.PushModal("UI/CardPileDialogModal", pileViewModel)
+
+3. CardPileDialogModal 运行所需结构
+
+  CardPileDialogModal root: RectTransform + CanvasGroup + CardPileDialogModal
+    Backdrop: Image
+    Panel
+      Title: TMP_Text
+      CloseButton: Button
+      ScrollRect: ScrollRect + CardPileListView
+        Viewport: Image + RectMask2D
+          Content: GridLayoutGroup + ContentSizeFitter
+
+ContentSizeFitter 使用 Vertical Preferred Size；ScrollRect 只开启 Vertical；
+GridLayoutGroup 使用 Fixed Column Count。CardPileListView 的 scrollRect、contentRoot、
+cardPrefab 必须绑定，CardPileDialogModal 的 titleText、cardPileListView、closeButton 必须绑定。
+
+4. UI Toolkit 适配判断
+
+框架规则兼容 UI Toolkit：Page/HUD/Modal/Overlay、ViewModel、Intent、读写分离和
+Addressables 生命周期都与渲染技术无关。
+
+当前实现不直接兼容 UI Toolkit，因为它依赖 Canvas、CanvasGroup、RectTransform、
+ScrollRect、GridLayoutGroup、uGUI EventSystem、GameObject Prefab 和 DOTween UI 扩展。
+
+UI Toolkit 需要另一套 Host/View/Loader：PanelSettings、UIDocument、VisualElement、
+VisualTreeAsset、ScrollView/ListView，以及 UI Toolkit 的指针捕获和样式动画。
+
+当前项目应先用 uGUI 跑通战斗 UI。若未来出现真实 UI Toolkit 页面，再保留上层
+UIManager 语义并替换底层 Host/Loader，不应在当前阶段同时维护两套渲染实现。
+
+========================================================================

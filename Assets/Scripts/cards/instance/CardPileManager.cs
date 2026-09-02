@@ -10,11 +10,14 @@ namespace cards.instance
         public Dictionary<CardInstanceId, CardInstance> Dictionary = new Dictionary<CardInstanceId, CardInstance>();
         private uint _maxIndex = 0; 
 
+        // Note: Builds a FRESH CardInstance per deck card — the battle never shares objects with the
+        //       persistent deck. So in-battle changes (cost reduction, attached hook listeners) are
+        //       discarded with the battle instead of leaking into the next one.
         public void CopyFromDeck(List<CardInstance> deck)
         {
             foreach (CardInstance card in deck)
             {
-                Dictionary.TryAdd(card.Id, card);
+                Dictionary.TryAdd(card.Id, new CardInstance(card));
                 if (card.Id.Value > _maxIndex)
                 {
                     _maxIndex = card.Id.Value;
