@@ -35,6 +35,11 @@ namespace cards.definition
             return image;
         }
 
+        public bool TryGetImage(CardDefinitionId id, out Sprite image)
+        {
+            return _cardImages.TryGetValue(id, out image);
+        }
+
         public bool TryGet(CardDefinitionId id, out CardDefinition result)
         {
             return _cards.TryGetValue(id, out result);

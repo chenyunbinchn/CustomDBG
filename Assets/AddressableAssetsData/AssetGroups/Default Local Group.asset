@@ -25,11 +25,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: a3ffb8e49c17bd64c8bfc26a744319cf
-    m_Address: Assets/ScriptableObjects/AllCardDefinitionLibrary.asset
-    m_ReadOnly: 0
-    m_SerializedLabels: []
-    FlaggedDuringContentUpdateRestriction: 0
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: bf52f9fc00beea44c8dc0c19e1dc20cb, type: 2}
   m_SchemaSet:

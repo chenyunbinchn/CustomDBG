@@ -1,0 +1,59 @@
+========================================================================
+  任务：实现最小 UI 框架
+  状态：done
+========================================================================
+
+修订记录：
+  2026-08-25 初版：实现完整 UI 基础框架。
+  2026-08-26 补充：增加代码注释和设计文档。
+  2026-09-01 精简：删除尚无真实需求的抽象，保留四个基础文件。
+
+关联规则：
+  Documentation/rules/260825-rule-ui-framework.txt
+
+------------------------------------------------------------------------
+1. 已实现
+------------------------------------------------------------------------
+
+  - UIManager：Page、HUD、Modal 栈、Overlay 和四个固定 Canvas 层。
+  - UIView：ViewModel 渲染、输入开关和打开关闭动画入口。
+  - IUIViewModel：UI 只读显示数据边界。
+  - AddressablesUIViewLoader：根 Prefab 加载和资源成对释放。
+  - Page 切换会清理当前 HUD 和 Modal。
+  - 同时只允许一个根 UI 操作。
+
+------------------------------------------------------------------------
+2. 已删除的提前抽象
+------------------------------------------------------------------------
+
+  - UICatalog、UIEntryDefinition、UIKey；
+  - UIState 和 LifetimePolicy；
+  - OwnerScope；
+  - UIOperationResult 和 UIOperationContext；
+  - IUIViewLoader 和 UIViewLoadResult；
+  - TypedUIView、EmptyViewModel、IUIIntent；
+  - 独立 UIRoot。
+
+第一版直接释放关闭的根 UI，直接使用 Addressables 地址，并由 UIManager 自身担任
+场景入口。出现第二个真实需求后再增加对应抽象。
+
+------------------------------------------------------------------------
+3. 使用说明
+------------------------------------------------------------------------
+
+  Documentation/documentations/260826-ui-design.txt
+
+该文档包含场景设置、Page、HUD、Modal、Overlay 和 CardView Intent 范例。
+
+------------------------------------------------------------------------
+4. 后续任务
+------------------------------------------------------------------------
+
+以下内容不属于基础框架任务：
+
+  - BattleHUD、CardViewModel、Presenter、PlayCardIntent 和 CardView 改造已由
+    Documentation/tasks/260901-task-implement-minimal-battle-card-ui.txt 实现；
+  - 具体 HomePage、BattlePage 和 Prefab 资源；
+  - 返回键 Controller 和真实场景验证。
+
+========================================================================
