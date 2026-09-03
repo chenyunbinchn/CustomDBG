@@ -1,7 +1,6 @@
 using System.Collections;
 using cards.instance;
 using enums;
-using gameStates.transient;
 using UnityEngine;
 
 namespace action.gameEffectActions
@@ -22,19 +21,19 @@ namespace action.gameEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
+        public override IEnumerator Execute(BattleActionContext context)
         {
-            bool removed = playerState.HandCards.Remove(Card);
+            bool removed = context.PlayerState.HandCards.Remove(Card);
             if (removed)
             {
-                playerState.DiscardPile.Add(Card);
-                Debug.Log($"[PlayedCardToDiscardAction] {playerState.PileManager.DescribeCard(Card)} -> Discard({playerState.DiscardPile.Count})");
+                context.PlayerState.DiscardPile.Add(Card);
+                Debug.Log($"[PlayedCardToDiscardAction] {context.PlayerState.PileManager.DescribeCard(Card)} -> Discard({context.PlayerState.DiscardPile.Count})");
             }
             else
             {
                 // Note: an earlier action of the SAME command may have moved the card already
                 //       (e.g. an exhaust/discard effect on the played card itself) — tolerated.
-                Debug.Log($"[PlayedCardToDiscardAction] {playerState.PileManager.DescribeCard(Card)} no longer in hand, skip");
+                Debug.Log($"[PlayedCardToDiscardAction] {context.PlayerState.PileManager.DescribeCard(Card)} no longer in hand, skip");
             }
             yield return null;
         }

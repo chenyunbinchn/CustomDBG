@@ -116,7 +116,11 @@ namespace systems
                 stateManager.GameState.HookManager, stateManager, actionManager);
 
             Debug.Log($"[Command] PlayCard: player#{command.Player.Id} plays {player.PileManager.DescribeCard(command.Card)} -> {actionManager.ActionQueue.Count} actions queued");
-            stateManager.GameState.ActionExecutor.Kick(actionManager, battleState, player);
+            BattleActionContext actionContext = new BattleActionContext(
+                battleState,
+                player,
+                stateManager.GameState.RandomManager);
+            stateManager.GameState.ActionExecutor.Kick(actionManager, actionContext);
         }
     }
 }

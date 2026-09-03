@@ -1,6 +1,5 @@
 using System.Collections;
 using enums;
-using gameStates.transient;
 using UnityEngine;
 
 namespace action.gameEffectActions
@@ -18,10 +17,10 @@ namespace action.gameEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
+        public override IEnumerator Execute(BattleActionContext context)
         {
-            playerState.PlayerEnergy += Value;
-            Debug.Log($"[GainEnergyAction] +{Value} -> PlayerEnergy = {playerState.PlayerEnergy}");
+            context.PlayerState.PlayerEnergy += Value;
+            Debug.Log($"[GainEnergyAction] +{Value} -> PlayerEnergy = {context.PlayerState.PlayerEnergy}");
             yield return null;
         }
     }

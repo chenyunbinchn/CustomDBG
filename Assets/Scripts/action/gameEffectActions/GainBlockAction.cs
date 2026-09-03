@@ -1,7 +1,6 @@
 using System.Collections;
 using combat;
 using enums;
-using gameStates.transient;
 using UnityEngine;
 
 namespace action.gameEffectActions
@@ -21,9 +20,9 @@ namespace action.gameEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
+        public override IEnumerator Execute(BattleActionContext context)
         {
-            ICombatActor target = EntityApi.Resolve(Target, battleState);
+            ICombatActor target = EntityApi.Resolve(Target, context.BattleState);
             if (target != null)
             {
                 target.Block += Value;

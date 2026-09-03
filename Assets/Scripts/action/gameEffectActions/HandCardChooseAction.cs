@@ -1,6 +1,5 @@
 using System.Collections;
 using enums;
-using gameStates.transient;
 using UnityEngine;
 
 namespace action.gameEffectActions
@@ -23,7 +22,7 @@ namespace action.gameEffectActions
             CardIndex = cardIndex;
         }
 
-        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
+        public override IEnumerator Execute(BattleActionContext context)
         {
             // Todo: ShowChooseCardUI();
             ActionStatus = EnumActionStatus.GatheringPlayerChoice;
