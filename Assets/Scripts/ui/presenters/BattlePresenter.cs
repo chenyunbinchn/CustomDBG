@@ -21,22 +21,28 @@ namespace ui.presenters
         private readonly StateManager _stateManager;
         private readonly int _playerIndex;
         private readonly string _cardPileDialogModalAddress;
+        private readonly string _cardDetailModalAddress;
 
         private BattleHUD _hud;
+        private CardPileDialogModal _pileDialog;
         private bool _waitingForCommand;
         private bool _refreshRequested;
 
-        public BattlePresenter(StateManager stateManager, int playerIndex, string cardPileDialogModalAddress)
+        public BattlePresenter(StateManager stateManager, int playerIndex, string cardPileDialogModalAddress,
+            string cardDetailModalAddress)
         {
             MyAssert.Assert(stateManager != null, "BattlePresenter requires StateManager.");
             MyAssert.Assert(playerIndex >= 0 && playerIndex < stateManager.BattlePlayerStates.Length,
                 $"BattlePresenter player index is out of range: {playerIndex}");
             MyAssert.Assert(!string.IsNullOrWhiteSpace(cardPileDialogModalAddress),
                 "BattlePresenter requires a card pile dialog modal address.");
+            MyAssert.Assert(!string.IsNullOrWhiteSpace(cardDetailModalAddress),
+                "BattlePresenter requires a card detail modal address.");
 
             _stateManager = stateManager;
             _playerIndex = playerIndex;
             _cardPileDialogModalAddress = cardPileDialogModalAddress;
+            _cardDetailModalAddress = cardDetailModalAddress;
         }
 
         public bool ShowHud(string battleHudAddress)
@@ -90,6 +96,7 @@ namespace ui.presenters
 
         public void Dispose()
         {
+            DetachPileDialog();
             DetachHud();
         }
 
@@ -111,6 +118,7 @@ namespace ui.presenters
             _hud = hud;
             _hud.PlayCardRequested += HandlePlayCardRequested;
             _hud.ViewPileRequested += HandleViewPileRequested;
+            _hud.CardDetailRequested += HandleCardDetailRequested;
             _hud.Closed += HandleHudClosed;
         }
 
@@ -123,6 +131,7 @@ namespace ui.presenters
 
             _hud.PlayCardRequested -= HandlePlayCardRequested;
             _hud.ViewPileRequested -= HandleViewPileRequested;
+            _hud.CardDetailRequested -= HandleCardDetailRequested;
             _hud.Closed -= HandleHudClosed;
             _hud = null;
         }
@@ -157,8 +166,52 @@ namespace ui.presenters
             UIManager manager = UIManager.Instance;
             if (manager != null)
             {
-                manager.PushModal(_cardPileDialogModalAddress, viewModel);
+                manager.PushModal(_cardPileDialogModalAddress, viewModel, HandlePileDialogOpened);
             }
+        }
+
+        private void HandlePileDialogOpened(UIView view)
+        {
+            CardPileDialogModal dialog = view as CardPileDialogModal;
+            MyAssert.Assert(dialog != null,
+                "Card pile dialog address must load a CardPileDialogModal root.");
+            if (dialog == null)
+            {
+                return;
+            }
+
+            DetachPileDialog();
+            _pileDialog = dialog;
+            _pileDialog.CardDetailRequested += HandleCardDetailRequested;
+            _pileDialog.Closed += HandlePileDialogClosed;
+        }
+
+        private void HandlePileDialogClosed()
+        {
+            DetachPileDialog();
+        }
+
+        private void DetachPileDialog()
+        {
+            if (_pileDialog == null)
+            {
+                return;
+            }
+
+            _pileDialog.CardDetailRequested -= HandleCardDetailRequested;
+            _pileDialog.Closed -= HandlePileDialogClosed;
+            _pileDialog = null;
+        }
+
+        private void HandleCardDetailRequested(ViewCardDetailIntent intent)
+        {
+            UIManager manager = UIManager.Instance;
+            if (manager == null || manager.IsBusy)
+            {
+                return;
+            }
+
+            manager.PushModal(_cardDetailModalAddress, CreateCardViewModel(intent.Card, false));
         }
 
         private CardPileViewModel CreatePileViewModel(EnumCardPileKind pileKind)

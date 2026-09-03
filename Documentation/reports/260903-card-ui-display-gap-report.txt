@@ -1,0 +1,24 @@
+CustomDBG card UI display gap report
+Date: 2026-09-03
+
+Findings
+
+1. Chinese card JSON is UTF-8 and is read with File.ReadAllText. The missing text was not caused by
+   file encoding. All card TMP components used LiberationSans SDF, which has no Chinese glyphs, and
+   TMP Settings had no fallback font assets.
+2. CardPileListView.contentRoot referenced the Scroll View root while ScrollRect.content referenced
+   the nested Content object. The actual Content had neither GridLayoutGroup nor ContentSizeFitter.
+3. CardView already had hover tween code, but it had no click event and no path to the modal stack.
+4. The project had no card-detail modal view or Addressable prefab.
+
+Implemented response
+
+- The project must import an authorized CJK font, generate a TMP font asset, and assign it to the
+  relevant TMP_Text components. Runtime system-font fallback code is intentionally not used.
+- Made ScrollRect.content canonical and configured a vertical four-column grid at runtime.
+- Added click-versus-drag handling and a read-only ViewCardDetailIntent.
+- Connected hand and pile clicks through BattlePresenter to UIManager.PushModal.
+- Added CardDetailModal code. Its prefab still has to be assembled and registered as
+  UI/CardDetailModal in Unity.
+
+Object pooling remains deliberately out of scope. Card views still use Instantiate and Destroy.

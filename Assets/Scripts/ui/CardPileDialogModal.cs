@@ -1,6 +1,8 @@
+using System;
 using TMPro;
 using tools.assert;
 using ui.core;
+using ui.intents;
 using ui.viewModels;
 using UnityEngine;
 using UnityEngine.UI;
@@ -14,11 +16,15 @@ namespace ui
         [SerializeField] private CardPileListView cardPileListView;
         [SerializeField] private Button closeButton;
 
+        public event Action<ViewCardDetailIntent> CardDetailRequested;
+        public event Action Closed;
+
         private void Awake()
         {
             MyAssert.Assert(titleText != null, "CardPileDialogModal requires titleText.");
             MyAssert.Assert(cardPileListView != null, "CardPileDialogModal requires a CardPileListView.");
             MyAssert.Assert(closeButton != null, "CardPileDialogModal requires a closeButton.");
+            cardPileListView.DetailRequested += HandleCardDetailRequested;
             closeButton.onClick.AddListener(HandleCloseClicked);
         }
 
@@ -38,6 +44,7 @@ namespace ui
         protected override void OnUnbind()
         {
             cardPileListView.Clear();
+            Closed?.Invoke();
         }
 
         private void HandleCloseClicked()
@@ -45,11 +52,20 @@ namespace ui
             UIManager.Instance.PopModal();
         }
 
+        private void HandleCardDetailRequested(ViewCardDetailIntent intent)
+        {
+            CardDetailRequested?.Invoke(intent);
+        }
+
         private void OnDestroy()
         {
             if (closeButton != null)
             {
                 closeButton.onClick.RemoveListener(HandleCloseClicked);
+            }
+            if (cardPileListView != null)
+            {
+                cardPileListView.DetailRequested -= HandleCardDetailRequested;
             }
         }
     }

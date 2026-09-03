@@ -24,6 +24,7 @@ namespace ui
         private int _dragPlaceholderIndex = -1;
 
         public event Action<PlayCardIntent> PlayRequested;
+        public event Action<ViewCardDetailIntent> DetailRequested;
 
         private void Awake()
         {
@@ -52,6 +53,7 @@ namespace ui
                 cardView.Render(model.Cards[i]);
                 cardView.DragStarted += HandleDragStarted;
                 cardView.DragEnded += HandleDragEnded;
+                cardView.Clicked += HandleCardClicked;
                 _cardViews.Add(cardView);
             }
 
@@ -76,6 +78,7 @@ namespace ui
 
                 cardView.DragStarted -= HandleDragStarted;
                 cardView.DragEnded -= HandleDragEnded;
+                cardView.Clicked -= HandleCardClicked;
                 cardView.gameObject.SetActive(false);
                 Destroy(cardView.gameObject);
             }
@@ -88,6 +91,11 @@ namespace ui
             _draggingCard = cardView;
             _dragPlaceholderIndex = _cardViews.IndexOf(cardView);
             cardView.transform.SetAsLastSibling();
+        }
+
+        private void HandleCardClicked(CardView cardView)
+        {
+            DetailRequested?.Invoke(new ViewCardDetailIntent(cardView.CardId));
         }
 
         private void HandleDragEnded(CardView cardView, PointerEventData eventData)
