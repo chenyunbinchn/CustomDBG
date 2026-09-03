@@ -112,7 +112,7 @@ namespace systems
 
             // Note: Reactions are queued behind the card's own actions (tail insert), then drained by the
             //       same serial resolution — they are ordinary GameActions, not a special kind.
-            HookSystem.Fire(new HookEvent(EnumHookType.AfterCardPlayed, command.Player, command.Target, 0),
+            HookSystem.Fire(new Hook(EnumHookType.AfterCardPlayed, command.Player, command.Target, 0),
                 stateManager.GameState.HookManager, stateManager, actionManager);
 
             Debug.Log($"[Command] PlayCard: player#{command.Player.Id} plays {player.PileManager.DescribeCard(command.Card)} -> {actionManager.ActionQueue.Count} actions queued");
