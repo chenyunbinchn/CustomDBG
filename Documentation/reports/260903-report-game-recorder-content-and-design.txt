@@ -1,0 +1,574 @@
+========================================================================
+  报告：游戏记录器——记录内容全集与落地方案
+  生成日期：2026-09-03
+========================================================================
+
+1. 结论摘要
+------------------------------------------------------------------------
+
+本项目应实现一套“结构化事实日志 + 输入回放 + 稳定点校验”的记录器，而不是
+继续扩充 Debug.Log，也不应只记录玩家输入。
+
+推荐模型：
+
+  A. 命令流（BattleCommand）
+     记录玩家/网络真正提交的决定，作为联机排序和确定性回放的输入。
+
+  B. 事实流（GameRecord）
+     记录命令是否合法、Action 如何展开和执行、Hook 何时触发及命中谁、
+     随机数取值、最终产生了哪些状态差量。它是战报、调试、审计和表现层的
+     统一数据源。
+
+  C. 稳定点状态哈希 + 稀疏检查点
+     每条命令的全部 Action 结算完后记录状态哈希；战斗开始、回合结束和
+     每 N 条命令保存检查点。用于发现漏记、确定性分歧、快速跳转和故障恢复。
+
+“记录一切”应定义为：记录所有会改变规则状态、影响后续确定性或表达玩家
+决定的事实；不记录每帧 Update、鼠标悬停、Tween 中间帧等纯表现噪声。
+UI 行为如确有产品分析需求，应进入独立 Telemetry 流，不能混入权威战斗日志。
+
+当前架构已经有合适的骨架：BattleCommand 是意图层，GameAction 是效果层，
+HookEvent 是反应层，且 ActionQueue 是全场事实顺序。但现有 Debug.Log 是不可
+解析的字符串，缺少关联 ID、动作来源、前后值、随机结果、失败和状态校验，
+无法满足完整记录、可靠回放或自动分析。
+
+
+2. 范围定义：什么必须记录，什么不属于权威记录
+------------------------------------------------------------------------
+
+2.1 必须记录
+
+  - 所有外部输入：玩家、AI、网络、超时和系统生成的命令/选择。
+  - 所有权威判定：接受、拒绝、拒绝原因、实际执行顺序。
+  - 所有规则行为：Action 入队、开始、完成、失败、取消。
+  - 所有事件反应：Hook 发射、监听者命中、反应 Action 的产生。
+  - 所有确定性输入：种子、随机域、调用序号、参数和结果。
+  - 所有规则状态变化：生命、格挡、能量、状态、卡牌区域、实体生命周期等。
+  - 所有战斗/回合/阶段边界以及胜负、奖励等结果。
+  - 稳定点状态哈希；必要的完整检查点。
+  - 异常：断言、非法状态、执行异常、死循环保护触发、回放分歧。
+
+2.2 默认不进入权威事实流
+
+  - 鼠标位置、悬停、窗口开关、卡牌拖动轨迹。
+  - 动画进度、粒子、音效、摄像机抖动、帧率。
+  - UI 的“尝试出牌”本身。只有生成并提交 BattleCommand 后才是规则输入。
+  - Debug.Log 文本。它可以由结构化记录派生成人类可读输出，但不能反过来
+    作为事实来源。
+
+2.3 可选独立流
+
+  - 产品 Telemetry：页面打开、按钮点击、停留时长、取消操作。
+  - 性能 Trace：Action/Hook 耗时、队列峰值、分配量。
+  - 表现 Replay：动画、镜头、语音等。它不影响规则回放。
+
+
+3. 需要记录的内容类型全集
+------------------------------------------------------------------------
+
+以下“全集”包含当前代码已经存在的类型，也包含按现有架构必然会加入的
+回合、AI、奖励和联机行为。新增规则行为时必须先归入其中一类；若无法归类，
+应新增明确的 RecordKind，禁止退化为自由文本。
+
+3.1 对局与版本元数据（Session）
+
+  SessionStarted
+    sessionId、recordSchemaVersion、gameVersion、buildId、platform、mode、
+    difficulty、playerCount、mainSeed、各随机域派生种子、规则/卡库内容哈希、
+    开始 UTC 时间。
+
+  SessionEnded
+    结束原因（正常/退出/断线/崩溃）、胜负摘要、最终序号、最终状态哈希、
+    持续时间。时间只用于观测，不参与确定性模拟。
+
+  ContentManifest
+    卡牌、敌人、物品、状态定义的版本或内容哈希。只记 DefinitionId 不足以
+    跨版本解释旧日志；同名卡牌的数值可能已经改变。
+
+3.2 章节、地图与战斗生命周期（Lifecycle）
+
+  RunStarted / RunEnded
+  MapGenerated / MapNodeSelected / MapNodeEntered / MapNodeResolved
+  BattleStarted / BattleEnded
+  RoundStarted / RoundEnded
+  TurnStarted / TurnEnded
+  PhaseChanged
+
+字段至少包括：battleId、turn、phase、发起者、原因、参与实体 ID、战斗种子或
+随机计数器起点。当前 BattleApi.EnterBattle 和 BattleState.Reset 是首个接入点。
+
+3.3 实体生命周期（Entity）
+
+  EntityCreated / EntitySpawned / EntityDespawned / EntityDied / EntityRevived
+  EntityTransformed
+
+适用于玩家、敌人、召唤物、卡牌实例、物品以及未来的场景实体。记录：
+entityId、entityType、definitionId、ownerId、原因、来源、初始/最终关键状态。
+
+每个可参与记录关联的运行时对象必须有稳定 ID。ActionEntityId 已覆盖玩家和
+敌人；CardInstanceId 已覆盖卡牌。ItemInstance 和 HookListener 当前没有实例
+ID，是实现完整追踪前必须补齐的缺口。
+
+3.4 命令与玩家选择（Command / Choice）
+
+  CommandSubmitted
+    命令到达事实；type、player、card、target、clientCommandId、提交来源。
+
+  CommandDequeued
+    权威排序后的 globalSequence/commandId。对联机而言，提交时间不能代表
+    执行顺序，出队才是事实顺序。
+
+  CommandAccepted / CommandRejected
+    判定结果、拒绝枚举、判定时状态哈希。当前 PlayCard 的拒绝原因包括：
+    NotPlayerTurn、CardNotFound、CardNotInHand、NotEnoughEnergy。
+
+  CommandCompleted / CommandFailed
+    根结算链结束、action 数量、结束状态哈希、异常信息。
+
+  ChoiceRequested / ChoiceSubmitted / ChoiceAccepted / ChoiceRejected /
+  ChoiceTimedOut
+    choiceId、候选项快照、选择者、选中实体 ID。不得记录手牌下标；应记录
+    CardInstanceId。当前 HandCardChooseAction 只有 cardIndex，未来联机与
+    回放实现前需要改为稳定 ID，并让选择走命令入口。
+
+当前 EnumCommandType 只有 PlayCard；将来的 EndTurn、选择牌、敌人 AI 决策、
+投票等都沿用同一套生命周期。
+
+3.5 Action 生命周期（Action）
+
+  ActionQueued
+    actionId、actionType、完整参数、queuePosition、parentRecordId、rootCommandId、
+    producer（CardEffect/Hook/System/AI）、source、target。
+
+  ActionStarted
+    actionId、执行前状态摘要或相关字段 before 值。
+
+  ActionCompleted
+    actionId、实际结果、产生的 StateDelta、随机调用范围、持续时间（可选）。
+
+  ActionSkipped / ActionFailed / ActionCancelled
+    原因、异常类型和消息、结算链是否中止。
+
+当前 Action 类型及其应记录的专属结果：
+
+  - CostEnergyAction：玩家、请求扣除值、energyBefore/After。
+  - GainEnergyAction：玩家、增加值、energyBefore/After。
+  - DamageAction：source、target、基础值、修正后值、格挡吸收、HP 实伤、
+    hpBefore/After、blockBefore/After、是否致死。
+  - GainBlockAction：source、target、请求值、实际值、blockBefore/After。
+  - DrawCardAction：请求数量、实际数量、每张 CardInstanceId、from/to、
+    是否触发重洗、牌库耗尽原因。
+  - PlayedCardToDiscardAction：cardId、Hand -> Discard，或 skipped 及原因。
+  - DiscardHandCardAction：每张 cardId、from/to、来源（效果/回合结束）。
+  - ExhaustCardAction：每张 cardId、from/to、目标选择来源。
+  - ApplyStatusAction：statusType、source、target、请求层数、实际层数、
+    durationBefore/After、listenerId（若状态表现为 Hook）。
+  - HandCardChooseAction：应改由 Choice 记录表达挂起和恢复；Action 仍记录
+    Started/Completed。
+
+不要仅序列化 Action 构造参数作为“结果”。例如 DrawCardAction(Value=3) 在
+牌不够时实际只抽 1 张；DamageAction 将来还会经过格挡与修正。记录必须同时
+包含 requested 与 applied。
+
+3.6 Hook / 事件触发（Hook）
+
+  HookFired
+    hookDispatchId、hookType、source、target、value、rootCommandId、
+    parentActionId、触发时的 turn/phase。
+
+  HookMatched
+    listenerId、hostType/hostId、ownerId、filter、匹配结果、产生的 effect 和
+    reactionActionId。生产级默认只写“命中”的监听者；诊断级可写 HookEvaluated
+    记录未命中及原因。
+
+  HookReactionQueued
+    反应 Action、队列位置（Tail/Head）、父 hookDispatchId。
+
+  HookGuardTriggered
+    同一监听者重入次数、根命令累计 action 数、阻断原因。这对应现有 Hook
+    规则已经指出但尚未实现的死循环保护。
+
+当前只有 AfterCardPlayed。未来至少应覆盖：Before/AfterDamage、HpLost、
+BlockGained/Broken、CardDrawn、CardDiscarded、CardExhausted、StatusApplied/
+Removed、TurnStarted/Ended、EntityDied 等。事件枚举扩展时应同步注册 payload
+版本和测试。
+
+注意：当前 BattleCommandApi 在卡牌自身 Action 真正执行前调用 AfterCardPlayed，
+只是依赖尾插保证反应 Action 后执行。于是 HookFired 的“发射时刻”和语义上的
+“牌已结算”并不一致，且发射时收集到的监听者是效果执行前的集合。记录器必须
+如实记录 dispatch 顺序；在扩展 Hook 前，应明确 AfterCardPlayed 究竟表示
+“命令展开后”还是“卡牌效果结算后”，不能靠日志名称猜测。
+
+3.7 状态差量（StateDelta）
+
+所有权威字段变化都必须能由一个结构化差量解释：
+
+  - StatChanged：Hp、Block、Energy、Gold、上限等，包含 before/after/delta。
+  - StatusChanged：添加、叠层、刷新、衰减、移除及原因。
+  - CardMoved：cardId、fromZone、toZone、fromIndex/toIndex、原因。
+  - PileReordered：完整 cardId 顺序或可验证的置换结果。
+  - CardCreated/Removed/Transformed/Upgraded/CostChanged。
+  - ItemGained/Removed/Activated/ChargeChanged。
+  - EnemyIntentSelected/Changed。
+  - EntityStateChanged：死亡、复活、控制权等。
+
+推荐 ActionCompleted 内嵌它直接造成的 deltas，同时也允许独立 StateDelta 记录。
+这样既能按行为阅读，也能无游戏逻辑地重建状态。状态修改应逐步收口到领域 API
+或 ActionResult 返回值，避免任意代码直接写 public 字段后无法被记录器观察。
+
+3.8 卡牌与牌堆（Card / Pile）
+
+除 CardMoved 外，以下复合事实必须明确记录：
+
+  - DeckInitialized / BattleCardRegistryBuilt：实例 ID 与 DefinitionId 映射。
+  - PileInitialized：各 pile 的确定顺序。
+  - PileShuffled：owner、pile、beforeHash、afterHash、完整 afterOrder（事实流）
+    及对应随机调用区间。
+  - CardsDrawn：请求/实际、按抽取顺序的 cardIds。
+  - CardPlayed：player、cardId、definitionId、target、costAtPlay。
+  - CardDiscarded / CardExhausted：必须与“打出后归弃”区分。
+
+牌堆名称应使用稳定枚举：Draw、Hand、Play（若未来添加）、Discard、Exhaust、
+Deck、Removed。不能依靠自由字符串或 UI 显示名。
+
+3.9 随机数（Random）
+
+  RandomStreamInitialized
+    domain、seed、algorithmId/algorithmVersion。
+
+  RandomValueGenerated
+    domain、counterBefore、operation、min/max、result、rootCommandId、parentActionId。
+
+当前已有 Shuffle、MonsterAi、MapGen、Item、LootDropCard 五个随机域及计数器，
+这是很好的接入点。仅保存 MainSeed 可用于正常回放，但不足以快速定位分歧；
+开发/审计模式应保存每次结果。生产精简模式至少在稳定点保存各域 counter，
+洗牌记录最终顺序或 afterHash。
+
+不得调用 UnityEngine.Random、new System.Random、系统时间或无记录的第三方随机
+源参与规则。随机算法或运行时变更可能改变同种子序列，因此必须记录算法版本，
+关键版本兼容场景直接以记录的 result 为准。
+
+3.10 结算结果与异常（Outcome / Diagnostic）
+
+  BattleWon / BattleLost / RewardGenerated / RewardChosen
+  InvariantViolated / ExceptionThrown / QueueLimitExceeded
+  ReplayDiverged / StateHashMismatch / RecordWriteFailed
+
+异常记录应包含最后成功 sequence、rootCommandId、actionId、状态哈希和有限的
+错误信息。写盘失败不能悄悄吞掉；开发构建应立即暴露，正式构建应切换内存缓冲、
+标记日志不完整，并尽力写尾记录。
+
+
+4. 统一记录模型
+------------------------------------------------------------------------
+
+4.1 Envelope（每条记录共同字段）
+
+建议每条记录使用如下不可变包络：
+
+  {
+    "schemaVersion": 1,
+    "sequence": 184,
+    "sessionId": "...",
+    "battleId": "battle-2",
+    "turn": 3,
+    "phase": "PlayerTurn",
+    "kind": "ActionCompleted",
+    "recordId": "r184",
+    "rootCommandId": "cmd17",
+    "parentRecordId": "r180",
+    "source": { "type": "Player", "id": 0 },
+    "target": { "type": "Enemy", "id": 1 },
+    "visibility": "OwnerOnly",
+    "payloadVersion": 1,
+    "payload": { ... }
+  }
+
+硬性规则：
+
+  - sequence 是单个权威模拟内严格递增的唯一事实顺序，不能用时间戳排序。
+  - recordId 用于引用；rootCommandId 串起一次输入引发的完整因果树；
+    parentRecordId 表达 Command -> Action -> Hook -> ReactionAction。
+  - 规则 ID 均使用数值/稳定 ID；名称只作为冗余可读字段。
+  - kind 与 payloadVersion 分开版本化；未知 kind 必须可跳过。
+  - wallClockUtc、durationMs 可加在诊断扩展里，但不参与重放和状态哈希。
+
+4.2 示例：一次出牌的因果链
+
+  100 CommandSubmitted(PlayCard, player0, card#8, enemy#0)
+  101 CommandDequeued(cmd17)
+  102 CommandAccepted(cmd17)
+  103 CardPlayed(card#8, costAtPlay=1)
+  104 ActionQueued(action#31, CostEnergy, parent=cmd17)
+  105 ActionQueued(action#32, Damage, parent=cmd17)
+  106 ActionQueued(action#33, PlayedCardToDiscard, parent=cmd17)
+  107 HookFired(AfterCardPlayed, dispatch#9, parent=cmd17)
+  108 HookMatched(listener#4, dispatch#9)
+  109 ActionQueued(action#34, GainBlock, parent=dispatch#9)
+  110 ActionStarted(action#31)
+  111 ActionCompleted(action#31, Energy 3 -> 2)
+  ...
+  120 ActionCompleted(action#34, Block 0 -> 1)
+  121 StablePoint(stateHash=..., rngCounters=...)
+  122 CommandCompleted(cmd17)
+
+该序列同时回答“玩家做了什么”“系统实际做了什么”“为何触发”“状态如何变”。
+
+
+5. 记录器架构方案
+------------------------------------------------------------------------
+
+5.1 核心组件
+
+  IGameRecorder
+    Record(in GameRecord record)
+    Flush()
+    Complete(SessionEndReason reason)
+
+  GameRecordWriter
+    唯一分配 sequence/recordId；补充 session、battle、turn 上下文；写入 Sink。
+
+  IGameRecordSink
+    JsonLinesFileSink：正式落盘。
+    InMemorySink：单元测试和最近 N 条崩溃缓冲。
+    CompositeSink：同时输出文件、控制台适配器或遥测。
+    NullSink：关闭记录时零业务分支。
+
+  RecordContext
+    当前 rootCommandId、parentRecordId、battleId、turn、phase、visibility。
+    通过显式参数/BattleActionContext 传递，不使用易被协程串扰的全局静态栈。
+
+  BattleSnapshotSerializer + StateHasher
+    规范化排序后序列化权威状态，生成稳定哈希和检查点。
+
+  ReplayReader
+    读取头、校验 schema/content/build；输入回放模式重放 Command；事实回放模式
+    应用 StateDelta；检查 StablePoint 哈希。
+
+5.2 建议目录
+
+  Assets/Scripts/recording/
+    GameRecord.cs
+    RecordKind.cs
+    RecordContext.cs
+    IGameRecorder.cs
+    GameRecorder.cs
+    serialization/GameRecordJsonConverter.cs
+    sinks/JsonLinesFileSink.cs
+    sinks/InMemorySink.cs
+    snapshot/BattleSnapshot.cs
+    snapshot/BattleSnapshotSerializer.cs
+    snapshot/StateHasher.cs
+    replay/ReplayReader.cs
+
+使用项目已经引用的 Newtonsoft.Json。Unity JsonUtility 对只读 struct、枚举策略、
+多态 payload 和版本兼容不够灵活。建议 JSON Lines（每行一个完整 JSON 对象）：
+崩溃时已写行仍可读，便于流式写、tail、过滤和上传。发布版本可再 gzip；不要一
+开始就引入二进制格式增加排障成本。
+
+5.3 唯一接入点
+
+  - StateManager/GameState.Init：建立 recorder，写 SessionStarted。
+  - BattleApi.EnterBattle：BattleStarted、实体/卡牌注册、初始牌堆、检查点。
+  - BattleCommandApi.Submit：CommandSubmitted。
+  - BattleCommandApi.Pump/ExecutePlayCard：Dequeue、Accepted/Rejected、根上下文。
+  - GameActionManager.Add：ActionQueued；因此卡牌效果和 Hook 反应不会漏记。
+  - ActionExecutor.Run：ActionStarted/Completed/Failed、稳定点和命令完成。
+  - HookSystem.Fire：HookFired、HookMatched、HookReactionQueued。
+  - RandomManager 的五个 NextInt：RandomValueGenerated。
+  - BattlePileApi：初始化、移动、洗牌等牌堆复合事实。
+  - 各 Action 或统一 StateMutation API：产生精确 StateDelta/ActionResult。
+
+应优先接在这些“窄腰”入口，不在每张卡牌和每个 UI 组件里手写日志。
+
+5.4 Action 结果捕获方式
+
+长期推荐让每个 Action 产生结构化 ActionResult，其中包含 applied 值和 deltas：
+
+  IEnumerator Execute(BattleActionContext context, ActionResult result)
+
+或在 context 中注入 StateMutator，由 SetHp/MoveCard/ApplyStatus 等方法统一产生
+delta。短期可在每个现有 Action 执行前后显式捕获相关字段。不要用“对整个
+BattleState 反射 diff”作为长期主方案：它无法可靠表达变化原因、牌堆语义和
+一对多操作，且容易造成性能和版本问题；全状态 diff 只适合测试期查漏。
+
+5.5 写盘与性能
+
+  - 主线程只构造轻量 DTO 并放入有界队列；后台线程批量序列化/写文件。
+  - Unity 对象、MonoBehaviour 和可变业务对象不得跨线程；入队前复制为纯数据。
+  - 关键记录在命令稳定点 Flush；不要每条 File.Flush 造成卡顿。
+  - 队列满时权威记录不能静默丢弃。调试/回放模式应阻塞或失败；纯 Telemetry
+    才允许按策略采样/丢弃。
+  - 文件先写 .tmp，正常结束写 SessionEnded 后原子改名；崩溃文件仍可逐行恢复。
+  - 保存到 Application.persistentDataPath/Records，而不是 Assets 或项目目录。
+
+5.6 可见性与隐私
+
+记录器内部可保存完整权威事实，但导出/网络广播必须按 visibility 投影视图：
+
+  Public：公开行为与公开状态。
+  OwnerOnly：手牌、抽牌内容等仅自己可见。
+  HostOnly：完整牌库顺序、AI 隐藏决定、反作弊信息。
+  PostGame：对局结束后才可公开。
+
+切勿把完整抽牌堆顺序直接发送给非权威客户端。玩家名、账号 ID、聊天内容等个人
+数据不属于规则回放的必需字段，应匿名化或从该日志排除。
+
+
+6. 回放与“完整记录”的关系
+------------------------------------------------------------------------
+
+已有《260610-report-replay-recording-granularity》推荐纯输入回放，这对“小文件、
+确定性重演”仍成立，但不能满足本次“记录发生的一切行为”的战报/调试要求。
+因此不是推翻旧结论，而是拆分职责：
+
+  - Command 流是最小可重放输入。
+  - Fact/Delta 流是实际发生过程的可查询证据。
+  - Checkpoint/Hash 是完整性和确定性的证明。
+
+提供两种读取模式：
+
+  Simulation Replay
+    从初始检查点注入 Command，以 StablePoint hash 验证。文件最小，能验证当前
+    逻辑确定性；规则版本改变时可能分歧。
+
+  Fact Replay
+    不重跑卡牌逻辑，按 StateDelta 重建状态，并按 Action/Hook 事实播放表现。
+    更适合旧版本录像、战报和调试，但要求 delta 覆盖完整。
+
+开发阶段两者同时运行：命令重放后的状态必须与事实流/检查点一致。这是发现
+“某个字段被直接修改却没有记录”的最有效机制。
+
+
+7. 当前代码缺口与风险
+------------------------------------------------------------------------
+
+P0（实现记录器前必须解决）：
+
+  1) GameAction 缺少 Source、rootCommandId、parentRecordId 和可序列化类型键。
+     仅 ActionId + 运行时 class 名无法建立稳定因果关系和长期兼容。
+
+  2) HookListener 无 listenerId、hostType、hostId，无法回答“哪个物品/状态/卡牌
+     触发了反应”。Owner 只说明它为谁行动，不等于物理宿主。
+
+  3) HandCardChooseAction 使用 cardIndex，违反现有联机规则要求的稳定 ID。
+
+  4) 多数状态字段可被任意直接写入；记录器无法保证观察到所有变化。需要通过
+     ActionResult/StateMutator 收口，并用快照 diff 测试兜底。
+
+  5) ActionExecutor 对协程异常没有结构化结束路径。异常时可能遗留 IsRunning=true、
+     缺 CommandFailed/SessionEnded，记录也无法完整收尾。
+
+  6) GameActionManager.NextId 在新战斗没有显式重置语义；ID 是 session 级还是
+     battle 级必须固定并写入规范。推荐 session 内单调递增，日志关联最简单。
+
+  7) ItemInstance 缺实例 ID/DefinitionId；状态 Hook 也没有独立实例/叠层模型。
+
+  8) 当前 DamageAction 直接减 HP，未实现格挡吸收；ApplyStatus 对部分状态只是
+     打印 Todo；Discard/Exhaust 也未真正改变状态。记录器应记录真实 applied=0/
+     skipped，不能把“请求执行”伪装成已产生结果。
+
+  9) Hook 死循环防护尚未实现。记录器可以统计链深/action 数并暴露问题，但
+     自己不应偷偷改变规则；上限与失败语义需在模拟层定义。
+
+ 10) CardPileManager.Dictionary.Values/Keys 参与监听者收集与初始牌堆构建。洗牌前
+     StableShuffle 已降低初始顺序风险，但 HookManager 中卡牌监听者的 Dictionary
+     遍历仍可能导致反应顺序不稳定，应改为按 CardInstanceId 排序遍历。
+
+
+8. 分阶段实施方案
+------------------------------------------------------------------------
+
+阶段 1：记录契约与最小可用链路（建议第一批）
+
+  - 定义 RecordKind、GameRecord envelope、各 payload DTO、schema v1。
+  - 增加 IGameRecorder、GameRecorder、InMemorySink、JsonLinesFileSink。
+  - 增加 session/battle/command/action/hook 的稳定 ID 和因果字段。
+  - 接入 Submit、Pump、GameActionManager.Add、ActionExecutor.Run、HookSystem.Fire。
+  - 记录 BattleStarted、Command 全生命周期、Action 生命周期、HookFired/Matched、
+    SessionEnded/异常。
+  - 先保留现有 Debug.Log，但让它由 recorder 的可读 Sink 派生；随后逐步删除散落日志。
+
+验收：打出一张“剑柄打击/残影”后，可以仅凭 JSONL 看见从 Command 到每个
+Action、Hook 和反应 Action 的完整有序因果链；非法出牌也有明确拒绝记录。
+
+阶段 2：状态差量与随机完整性
+
+  - 为所有已实现 Action 增加 ActionResult/requested/applied/deltas。
+  - 牌堆操作改为稳定 CardInstanceId 语义，记录精确移动和洗牌后顺序。
+  - 接入 RandomManager 五个域，记录 counter/args/result。
+  - 为 listener、item、status instance 补稳定 ID 与来源。
+  - 引入开发期 SnapshotDiffValidator：Action 执行前后 diff 与声明 deltas 对比。
+
+验收：从 BattleStarted 检查点 + StateDelta 顺序应用，可恢复与运行时完全相同的
+HP、Block、Energy、状态和每个牌堆的有序内容。
+
+阶段 3：检查点、哈希与回放
+
+  - 实现规范化 BattleSnapshot 与 StateHasher。
+  - 每条命令稳定点写 hash；战斗开始、回合结束、每 N 条命令写 checkpoint。
+  - 实现 Simulation Replay、Fact Replay 和 hash 分歧报告。
+  - 记录 gameVersion/buildId/contentHash，并制定旧 schema 迁移策略。
+
+验收：同一日志连续回放多次 hash 完全相同；人为改一条随机结果或 delta 时能在
+第一个错误稳定点报告 sequence/rootCommandId，而不是只在战斗结尾发现不一致。
+
+阶段 4：生产化与工具
+
+  - 后台批量写盘、gzip、容量/保留策略、崩溃恢复。
+  - 战报查询器：按玩家/回合/卡牌/Action/Hook 筛选和导出。
+  - 按 visibility 生成玩家视角、观战视角和内部审计视角。
+  - 性能基准与超长 Hook 链压力测试。
+
+
+9. 测试与验收清单
+------------------------------------------------------------------------
+
+  [ ] sequence 严格递增，无重复、无空洞（除明确标记的写盘损坏）。
+  [ ] 每个 Accepted Command 恰有一个 Completed 或 Failed。
+  [ ] 每个 ActionQueued 恰有一个 Completed/Skipped/Failed/Cancelled。
+  [ ] 每个 HookMatched 能追到 HookFired，并能追到产生的 reactionActionId。
+  [ ] 所有 StateDelta 的 before 等于应用前值，after = before + 实际变化。
+  [ ] 所有随机调用都有正确 domain/counter；回放计数器在稳定点一致。
+  [ ] 抽牌不足、空弃牌堆、重洗、打出的牌提前被移走等边界均有真实结果。
+  [ ] 非法出牌记录拒绝但不产生 Action/StateDelta。
+  [ ] 多监听者顺序固定；Dictionary 构造顺序变化不影响最终日志/状态哈希。
+  [ ] Hook 成环时产生 Guard/Failed 记录并可安全结束结算链。
+  [ ] 协程异常、退出和崩溃后 JSONL 至少可读取到最后一个完整行。
+  [ ] 日志中无 Unity 对象引用、委托、手牌下标或本地化字符串作为唯一标识。
+  [ ] 非权威客户端导出内容不会泄露他人手牌和抽牌堆顺序。
+  [ ] Golden test：固定 seed + 固定 commands 生成稳定的规范化事实日志。
+  [ ] Replay test：Command Replay 与 Fact Replay 在每个 StablePoint hash 相同。
+
+
+10. 推荐的首个实现切片
+------------------------------------------------------------------------
+
+不要一次实现所有未来事件。第一条端到端切片应只覆盖当前已能运行的出牌链：
+
+  SessionStarted
+    -> BattleStarted + 初始快照
+    -> PlayCard CommandSubmitted/Accepted/Rejected
+    -> ActionQueued/Started/Completed
+    -> AfterCardPlayed HookFired/Matched
+    -> Energy/Hp/Block/CardMoved/StatusAttached delta
+    -> StablePoint + CommandCompleted
+    -> SessionEnded
+
+这一切片完成后，记录器的包络、顺序、因果、写盘、状态差量和 Hook 追踪都已经
+走通。以后新增 EndTurn、敌人 AI、死亡、奖励等，只需增加 payload 和接入相应
+模拟层边界，不需要重做基础设施。
+
+
+11. 最终建议
+------------------------------------------------------------------------
+
+采用本报告的三层模型：BattleCommand 记录“为什么开始”，GameAction/Hook/Delta
+记录“实际发生什么”，Checkpoint/Hash 证明“结果完整且一致”。JSONL 是当前阶段
+最合适的持久格式，Newtonsoft.Json 已在项目中可用。
+
+优先级为：先建立稳定 ID、统一 envelope 和窄腰接入点；再让每个 Action 报告
+实际结果；最后增加状态哈希、检查点与回放。若只把现有 Debug.Log 写入文件，
+将无法可靠查询、关联、兼容版本或验证确定性，不应视为记录器实现。
+
+========================================================================
