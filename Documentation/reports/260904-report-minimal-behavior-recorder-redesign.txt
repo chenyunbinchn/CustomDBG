@@ -123,6 +123,8 @@ HookRecord。没有记录器接口、事件 Hub、Matcher、父子 Scope 或通�
     可与领域、Outcome、RootCommandId 等其他条件组合。
   - Overlay 不显示重复的颜色图例；Outcome 筛选文字直接表达语义颜色：Observed 灰、
     Succeeded 绿、Rejected 橙红、Interrupted 与 Only Problems 红。
+  - Overlay 保持为单文件、单 MonoBehaviour；内部按生命周期、窗口内容、屏幕适配、
+    时间轴外观、筛选、查询和文本格式化排序，没有增加 ViewModel 或 UI 接口层。
   - 内存 Sink 用 Version 标记内容变化，Overlay 仅在记录增加或筛选改变时重新
     查询，不在每次 OnGUI 调用中扫描全部 4096 条记录。
 

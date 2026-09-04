@@ -25,6 +25,18 @@ namespace recording
         private const float ResizeEdgeSize = 14f;
         private const float ResizeHandleSize = 24f;
 
+        private static readonly Color WindowBorderColor = new Color(0.75f, 0.85f, 1f, 0.9f);
+        private static readonly Color BattleColor = new Color(1f, 0.55f, 0.35f);
+        private static readonly Color CommandColor = new Color(0.4f, 0.7f, 1f);
+        private static readonly Color ActionColor = new Color(0.45f, 0.85f, 0.55f);
+        private static readonly Color HookColor = new Color(0.75f, 0.55f, 1f);
+        private static readonly Color RootlessColor = new Color(0.5f, 0.5f, 0.5f);
+        private static readonly Color ProblemColor = new Color(1f, 0.2f, 0.2f);
+        private static readonly Color ObservedColor = new Color(0.78f, 0.78f, 0.78f);
+        private static readonly Color SucceededColor = new Color(0.45f, 1f, 0.55f);
+        private static readonly Color RejectedColor = new Color(1f, 0.62f, 0.25f);
+        private static readonly Color InterruptedColor = new Color(1f, 0.35f, 0.35f);
+
         [Flags]
         private enum WindowResizeEdge
         {
@@ -64,6 +76,8 @@ namespace recording
         private string _rootCommandText = string.Empty;
         private string _rootCommandError;
 
+        // Unity lifecycle and visibility
+
         public void Initialize(StateManager stateManager)
         {
             _stateManager = stateManager;
@@ -94,35 +108,52 @@ namespace recording
             try
             {
                 GUI.depth = -1000;
-                Event currentEvent = Event.current;
-                if (currentEvent.type == EventType.KeyDown && currentEvent.keyCode == KeyCode.F8)
-                {
-                    ToggleVisibility();
-                    currentEvent.Use();
-                }
+                HandleVisibilityShortcut();
 
                 if (!_visible)
                 {
-                    if (GUI.Button(new Rect(8f, 8f, 120f, 28f), "Records (F8)"))
-                    {
-                        ToggleVisibility();
-                    }
+                    DrawLauncherButton();
                     return;
                 }
 
-                ConstrainWindowToScreen();
-                HandleScreenSpaceWindowResize();
-                _windowRect = GUI.Window(
-                    WindowId,
-                    _windowRect,
-                    DrawWindow,
-                    "Behavior Recorder — F8");
-                ConstrainWindowToScreen();
+                DrawOverlayWindow();
             }
             finally
             {
                 GUI.matrix = previousMatrix;
             }
+        }
+
+        private void HandleVisibilityShortcut()
+        {
+            Event currentEvent = Event.current;
+            if (currentEvent.type != EventType.KeyDown || currentEvent.keyCode != KeyCode.F8)
+            {
+                return;
+            }
+
+            ToggleVisibility();
+            currentEvent.Use();
+        }
+
+        private void DrawLauncherButton()
+        {
+            if (GUI.Button(new Rect(8f, 8f, 120f, 28f), "Records (F8)"))
+            {
+                ToggleVisibility();
+            }
+        }
+
+        private void DrawOverlayWindow()
+        {
+            ConstrainWindowToScreen();
+            HandleScreenSpaceWindowResize();
+            _windowRect = GUI.Window(
+                WindowId,
+                _windowRect,
+                DrawWindow,
+                "Behavior Recorder — F8");
+            ConstrainWindowToScreen();
         }
 
         private void ToggleVisibility()
@@ -140,34 +171,31 @@ namespace recording
             }
         }
 
-        private void DrawWindow(int windowId)
+        // Window contents
+
+        private void DrawWindow(int _)
         {
             DrawStatus();
-            bool filterChanged = DrawFilters();
-            if (filterChanged)
+            if (DrawFilters())
             {
                 RefreshRecords();
             }
 
+            DrawRecordList();
+            DrawSelectedRecord();
+            DrawResizeChrome();
+            GUI.DragWindow(new Rect(0f, 0f, _windowRect.width, 24f));
+        }
+
+        private void DrawRecordList()
+        {
             GUILayout.Space(4f);
             GUILayout.Label($"Records: {_visibleRecords.Count} (showing at most {MaxVisibleRecords})");
-
             float listHeight = Mathf.Max(180f, _windowRect.height * 0.48f);
             _recordScroll = GUILayout.BeginScrollView(_recordScroll, GUILayout.Height(listHeight));
             for (int i = 0; i < _visibleRecords.Count; i++)
             {
-                BehaviorRecord record = _visibleRecords[i];
-                Color previousBackgroundColor = GUI.backgroundColor;
-                GUI.backgroundColor = GetRowColor(record);
-                string row = ReferenceEquals(record, _selectedRecord)
-                    ? $"    > {BuildRow(record)}"
-                    : $"      {BuildRow(record)}";
-                if (GUILayout.Button(row, GUILayout.ExpandWidth(true)))
-                {
-                    _selectedRecord = record;
-                }
-                GUI.backgroundColor = previousBackgroundColor;
-                DrawRowMarkers(GUILayoutUtility.GetLastRect(), record);
+                DrawRecordRow(_visibleRecords[i]);
             }
             GUILayout.EndScrollView();
 
@@ -175,16 +203,62 @@ namespace recording
             {
                 _recordScroll.y = float.MaxValue;
             }
+        }
 
+        private void DrawRecordRow(BehaviorRecord record)
+        {
+            Color previousBackgroundColor = GUI.backgroundColor;
+            GUI.backgroundColor = GetRowColor(record);
+            string selectionPrefix = ReferenceEquals(record, _selectedRecord) ? "    > " : "      ";
+            if (GUILayout.Button(selectionPrefix + BuildRow(record), GUILayout.ExpandWidth(true)))
+            {
+                _selectedRecord = record;
+            }
+            GUI.backgroundColor = previousBackgroundColor;
+            DrawRowMarkers(GUILayoutUtility.GetLastRect(), record);
+        }
+
+        private void DrawSelectedRecord()
+        {
             GUILayout.Label("Selected record");
             _detailScroll = GUILayout.BeginScrollView(_detailScroll, GUILayout.ExpandHeight(true));
             GUILayout.TextArea(_selectedRecord == null
                 ? "Select a record to inspect it."
                 : BuildDetails(_selectedRecord), GUILayout.ExpandHeight(true));
             GUILayout.EndScrollView();
+        }
 
-            DrawResizeChrome();
-            GUI.DragWindow(new Rect(0f, 0f, _windowRect.width, 24f));
+        // Window resizing and screen adaptation
+
+        private float CalculateUiScale()
+        {
+            float automaticScale = Mathf.Clamp(
+                Screen.height / ReferenceScreenHeight,
+                MinimumAutoScale,
+                MaximumAutoScale);
+            return automaticScale * _userScale;
+        }
+
+        private void ConstrainWindowToScreen()
+        {
+            const float margin = 12f;
+            float logicalScreenWidth = Screen.width / _currentUiScale;
+            float logicalScreenHeight = Screen.height / _currentUiScale;
+
+            float maximumWidth = Mathf.Max(1f, logicalScreenWidth - margin * 2f);
+            float maximumHeight = Mathf.Max(1f, logicalScreenHeight - margin * 2f);
+            float minimumWidth = Mathf.Min(MinimumWindowWidth, maximumWidth);
+            float minimumHeight = Mathf.Min(MinimumWindowHeight, maximumHeight);
+            _windowRect.width = Mathf.Clamp(_windowRect.width, minimumWidth, maximumWidth);
+            _windowRect.height = Mathf.Clamp(_windowRect.height, minimumHeight, maximumHeight);
+            _windowRect.x = Mathf.Clamp(
+                _windowRect.x,
+                margin,
+                Mathf.Max(margin, logicalScreenWidth - _windowRect.width - margin));
+            _windowRect.y = Mathf.Clamp(
+                _windowRect.y,
+                margin,
+                Mathf.Max(margin, logicalScreenHeight - _windowRect.height - margin));
         }
 
         private void HandleScreenSpaceWindowResize()
@@ -241,7 +315,7 @@ namespace recording
             }
 
             Color previousColor = GUI.color;
-            GUI.color = new Color(0.75f, 0.85f, 1f, 0.9f);
+            GUI.color = WindowBorderColor;
             GUI.DrawTexture(new Rect(0f, 0f, _windowRect.width, 2f), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(0f, _windowRect.height - 2f, _windowRect.width, 2f), Texture2D.whiteTexture);
             GUI.DrawTexture(new Rect(0f, 0f, 2f, _windowRect.height), Texture2D.whiteTexture);
@@ -312,14 +386,16 @@ namespace recording
             return window;
         }
 
+        // Timeline appearance
+
         private static Color GetRowColor(BehaviorRecord record)
         {
             switch (record.Category)
             {
-                case BehaviorRecordCategory.Battle: return new Color(1f, 0.55f, 0.35f);
-                case BehaviorRecordCategory.Command: return new Color(0.4f, 0.7f, 1f);
-                case BehaviorRecordCategory.Action: return new Color(0.45f, 0.85f, 0.55f);
-                case BehaviorRecordCategory.Hook: return new Color(0.75f, 0.55f, 1f);
+                case BehaviorRecordCategory.Battle: return BattleColor;
+                case BehaviorRecordCategory.Command: return CommandColor;
+                case BehaviorRecordCategory.Action: return ActionColor;
+                case BehaviorRecordCategory.Hook: return HookColor;
                 default: return Color.white;
             }
         }
@@ -339,7 +415,7 @@ namespace recording
 
             if (RecordQuery.IsProblem(record))
             {
-                GUI.color = new Color(1f, 0.2f, 0.2f);
+                GUI.color = ProblemColor;
                 GUI.DrawTexture(
                     new Rect(rowRect.xMax - 7f, rowRect.y + 2f, 4f, Mathf.Max(1f, rowRect.height - 4f)),
                     Texture2D.whiteTexture);
@@ -352,13 +428,15 @@ namespace recording
         {
             if (!rootCommandId.HasValue)
             {
-                return new Color(0.5f, 0.5f, 0.5f);
+                return RootlessColor;
             }
 
             const double goldenRatioConjugate = 0.618033988749895d;
             float hue = (float)((rootCommandId.Value * goldenRatioConjugate) % 1d);
             return Color.HSVToRGB(hue, 0.72f, 0.95f);
         }
+
+        // Header and filters
 
         private void DrawStatus()
         {
@@ -395,41 +473,26 @@ namespace recording
             GUILayout.EndHorizontal();
         }
 
-        private float CalculateUiScale()
-        {
-            float automaticScale = Mathf.Clamp(
-                Screen.height / ReferenceScreenHeight,
-                MinimumAutoScale,
-                MaximumAutoScale);
-            return automaticScale * _userScale;
-        }
-
-        private void ConstrainWindowToScreen()
-        {
-            const float margin = 12f;
-            float logicalScreenWidth = Screen.width / _currentUiScale;
-            float logicalScreenHeight = Screen.height / _currentUiScale;
-
-            float maximumWidth = Mathf.Max(1f, logicalScreenWidth - margin * 2f);
-            float maximumHeight = Mathf.Max(1f, logicalScreenHeight - margin * 2f);
-            float minimumWidth = Mathf.Min(MinimumWindowWidth, maximumWidth);
-            float minimumHeight = Mathf.Min(MinimumWindowHeight, maximumHeight);
-            _windowRect.width = Mathf.Clamp(_windowRect.width, minimumWidth, maximumWidth);
-            _windowRect.height = Mathf.Clamp(_windowRect.height, minimumHeight, maximumHeight);
-            _windowRect.x = Mathf.Clamp(
-                _windowRect.x,
-                margin,
-                Mathf.Max(margin, logicalScreenWidth - _windowRect.width - margin));
-            _windowRect.y = Mathf.Clamp(
-                _windowRect.y,
-                margin,
-                Mathf.Max(margin, logicalScreenHeight - _windowRect.height - margin));
-        }
-
         private bool DrawFilters()
         {
-            bool changed = false;
+            bool changed = DrawDomainFilters();
+            changed |= DrawOutcomeFilters();
+            changed |= DrawRootCommandFilters();
 
+            if (!string.IsNullOrEmpty(_rootCommandError))
+            {
+                Color previousColor = GUI.color;
+                GUI.color = ProblemColor;
+                GUILayout.Label(_rootCommandError);
+                GUI.color = previousColor;
+            }
+
+            return changed;
+        }
+
+        private bool DrawDomainFilters()
+        {
+            bool changed = false;
             GUILayout.BeginHorizontal();
             GUILayout.Label("Domain", GUILayout.Width(55f));
             changed |= DrawToggle("Battle", ref _showBattle);
@@ -437,43 +500,35 @@ namespace recording
             changed |= DrawToggle("Action", ref _showAction);
             changed |= DrawToggle("Hook", ref _showHook);
             GUILayout.EndHorizontal();
+            return changed;
+        }
 
+        private bool DrawOutcomeFilters()
+        {
+            bool changed = false;
             GUILayout.BeginHorizontal();
             GUILayout.Label("Outcome", GUILayout.Width(55f));
-            changed |= DrawColoredToggle(
-                "Observed",
-                ref _showObserved,
-                new Color(0.78f, 0.78f, 0.78f));
-            changed |= DrawColoredToggle(
-                "Succeeded",
-                ref _showSucceeded,
-                new Color(0.45f, 1f, 0.55f));
-            changed |= DrawColoredToggle(
-                "Rejected",
-                ref _showRejected,
-                new Color(1f, 0.62f, 0.25f));
-            changed |= DrawColoredToggle(
-                "Interrupted",
-                ref _showInterrupted,
-                new Color(1f, 0.35f, 0.35f));
-            Color previousContentColor = GUI.contentColor;
-            GUI.contentColor = new Color(1f, 0.35f, 0.35f);
-            bool nextOnlyProblems = GUILayout.Toggle(_onlyProblems, "Only Problems", GUILayout.Width(105f));
-            GUI.contentColor = previousContentColor;
+            changed |= DrawColoredToggle("Observed", ref _showObserved, ObservedColor);
+            changed |= DrawColoredToggle("Succeeded", ref _showSucceeded, SucceededColor);
+            changed |= DrawColoredToggle("Rejected", ref _showRejected, RejectedColor);
+            changed |= DrawColoredToggle("Interrupted", ref _showInterrupted, InterruptedColor);
+            bool nextOnlyProblems = DrawToggleValue(_onlyProblems, "Only Problems", InterruptedColor);
             if (nextOnlyProblems != _onlyProblems)
             {
                 _onlyProblems = nextOnlyProblems;
                 changed = true;
                 if (_onlyProblems)
                 {
-                    _showObserved = true;
-                    _showSucceeded = true;
-                    _showRejected = true;
-                    _showInterrupted = true;
+                    ShowAllOutcomes();
                 }
             }
             GUILayout.EndHorizontal();
+            return changed;
+        }
 
+        private bool DrawRootCommandFilters()
+        {
+            bool changed = false;
             GUILayout.BeginHorizontal();
             GUILayout.Label("Root ID", GUILayout.Width(55f));
             string nextRootCommandText = GUILayout.TextField(_rootCommandText, GUILayout.Width(130f));
@@ -490,15 +545,6 @@ namespace recording
                 changed = true;
             }
             GUILayout.EndHorizontal();
-
-            if (!string.IsNullOrEmpty(_rootCommandError))
-            {
-                Color previousColor = GUI.color;
-                GUI.color = new Color(1f, 0.45f, 0.45f);
-                GUILayout.Label(_rootCommandError);
-                GUI.color = previousColor;
-            }
-
             return changed;
         }
 
@@ -516,11 +562,27 @@ namespace recording
 
         private static bool DrawColoredToggle(string label, ref bool value, Color textColor)
         {
+            bool nextValue = DrawToggleValue(value, label, textColor);
+            bool changed = nextValue != value;
+            value = nextValue;
+            return changed;
+        }
+
+        private static bool DrawToggleValue(bool value, string label, Color textColor)
+        {
             Color previousContentColor = GUI.contentColor;
             GUI.contentColor = textColor;
-            bool changed = DrawToggle(label, ref value);
+            bool nextValue = GUILayout.Toggle(value, label, GUILayout.Width(105f));
             GUI.contentColor = previousContentColor;
-            return changed;
+            return nextValue;
+        }
+
+        private void ShowAllOutcomes()
+        {
+            _showObserved = true;
+            _showSucceeded = true;
+            _showRejected = true;
+            _showInterrupted = true;
         }
 
         private void ResetFilters()
@@ -529,15 +591,14 @@ namespace recording
             _showCommand = true;
             _showAction = true;
             _showHook = true;
-            _showObserved = true;
-            _showSucceeded = true;
-            _showRejected = true;
-            _showInterrupted = true;
+            ShowAllOutcomes();
             _onlyProblems = false;
             _rootCommandText = string.Empty;
             _expandRootCommandChain = false;
             _rootCommandError = null;
         }
+
+        // Record querying
 
         private void RefreshRecords()
         {
@@ -576,8 +637,7 @@ namespace recording
         private RecordFilter BuildFilter()
         {
             _rootCommandError = null;
-            if ((!_showBattle && !_showCommand && !_showAction && !_showHook) ||
-                (!_showObserved && !_showSucceeded && !_showRejected && !_showInterrupted))
+            if (!HasVisibleDomain() || !HasVisibleOutcome())
             {
                 return null;
             }
@@ -588,39 +648,73 @@ namespace recording
                 OnlyProblems = _onlyProblems,
             };
 
-            if (!_showBattle || !_showCommand || !_showAction || !_showHook)
+            AddCategoryFilters(filter);
+            AddOutcomeFilters(filter);
+            return TryAddRootCommandFilter(filter) ? filter : null;
+        }
+
+        private bool HasVisibleDomain()
+        {
+            return _showBattle || _showCommand || _showAction || _showHook;
+        }
+
+        private bool HasVisibleOutcome()
+        {
+            return _showObserved || _showSucceeded || _showRejected || _showInterrupted;
+        }
+
+        private void AddCategoryFilters(RecordFilter filter)
+        {
+            bool showsAllCategories = _showBattle && _showCommand && _showAction && _showHook;
+            if (showsAllCategories)
             {
-                if (_showBattle) filter.Categories.Add(BehaviorRecordCategory.Battle);
-                if (_showCommand) filter.Categories.Add(BehaviorRecordCategory.Command);
-                if (_showAction) filter.Categories.Add(BehaviorRecordCategory.Action);
-                if (_showHook) filter.Categories.Add(BehaviorRecordCategory.Hook);
+                return;
             }
 
-            if (!_showObserved || !_showSucceeded || !_showRejected || !_showInterrupted)
+            if (_showBattle) filter.Categories.Add(BehaviorRecordCategory.Battle);
+            if (_showCommand) filter.Categories.Add(BehaviorRecordCategory.Command);
+            if (_showAction) filter.Categories.Add(BehaviorRecordCategory.Action);
+            if (_showHook) filter.Categories.Add(BehaviorRecordCategory.Hook);
+        }
+
+        private void AddOutcomeFilters(RecordFilter filter)
+        {
+            bool showsAllOutcomes =
+                _showObserved && _showSucceeded && _showRejected && _showInterrupted;
+            if (showsAllOutcomes)
             {
-                if (_showObserved) filter.Outcomes.Add(EnumBehaviorRecordOutcome.Observed);
-                if (_showSucceeded) filter.Outcomes.Add(EnumBehaviorRecordOutcome.Succeeded);
-                if (_showRejected) filter.Outcomes.Add(EnumBehaviorRecordOutcome.Rejected);
-                if (_showInterrupted) filter.Outcomes.Add(EnumBehaviorRecordOutcome.Interrupted);
+                return;
             }
 
-            if (!string.IsNullOrWhiteSpace(_rootCommandText))
+            if (_showObserved) filter.Outcomes.Add(EnumBehaviorRecordOutcome.Observed);
+            if (_showSucceeded) filter.Outcomes.Add(EnumBehaviorRecordOutcome.Succeeded);
+            if (_showRejected) filter.Outcomes.Add(EnumBehaviorRecordOutcome.Rejected);
+            if (_showInterrupted) filter.Outcomes.Add(EnumBehaviorRecordOutcome.Interrupted);
+        }
+
+        private bool TryAddRootCommandFilter(RecordFilter filter)
+        {
+            if (string.IsNullOrWhiteSpace(_rootCommandText))
             {
-                if (!ulong.TryParse(_rootCommandText, out ulong rootCommandId) || rootCommandId == 0)
-                {
-                    _rootCommandError = "Root ID must be a positive integer.";
-                    return null;
-                }
-                filter.RootCommandIds.Add(rootCommandId);
+                return true;
             }
 
-            return filter;
+            if (!ulong.TryParse(_rootCommandText, out ulong rootCommandId) || rootCommandId == 0)
+            {
+                _rootCommandError = "Root ID must be a positive integer.";
+                return false;
+            }
+
+            filter.RootCommandIds.Add(rootCommandId);
+            return true;
         }
 
         private InMemoryBehaviorRecordSink GetMemorySink()
         {
             return _stateManager?.GameState?.BehaviorRecordMemory;
         }
+
+        // Record text formatting
 
         private static string BuildRow(BehaviorRecord record)
         {
