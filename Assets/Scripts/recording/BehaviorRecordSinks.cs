@@ -24,6 +24,7 @@ namespace recording
 
         public int Capacity => _buffer.Length;
         public int Count => _count;
+        public ulong Version { get; private set; }
         public IReadOnlyList<BehaviorRecord> Records
         {
             get
@@ -53,11 +54,13 @@ namespace recording
             {
                 _buffer[(_start + _count) % _buffer.Length] = record;
                 _count++;
+                Version++;
                 return;
             }
 
             _buffer[_start] = record;
             _start = (_start + 1) % _buffer.Length;
+            Version++;
         }
 
         public void Flush()

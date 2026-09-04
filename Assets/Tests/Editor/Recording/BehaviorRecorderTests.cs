@@ -173,6 +173,7 @@ namespace recording.tests
             sink.Append(Record(3, EnumCommandRecordKind.CommandCompleted, 1));
 
             Assert.That(sink.Records.Select(record => record.Sequence), Is.EqualTo(new ulong[] { 2, 3 }));
+            Assert.That(sink.Version, Is.EqualTo(3));
         }
 
         [Test]
@@ -284,6 +285,22 @@ namespace recording.tests
             var result = RecordQuery.Apply(input, filter);
 
             Assert.That(result.Select(record => record.Sequence), Is.EqualTo(new ulong[] { 1 }));
+        }
+
+        [Test]
+        public void Query_OnlyProblemsReturnsRejectedAndInterruptedRecords()
+        {
+            BehaviorRecord[] input =
+            {
+                Record(1, EnumCommandRecordKind.CommandSubmitted, 1),
+                Record(2, EnumCommandRecordKind.CommandRejected, 1),
+                Record(3, EnumActionRecordKind.ActionCompleted, 1),
+                Record(4, EnumCommandRecordKind.CommandInterrupted, 2),
+            };
+
+            var result = RecordQuery.Apply(input, new RecordFilter { OnlyProblems = true });
+
+            Assert.That(result.Select(record => record.Sequence), Is.EqualTo(new ulong[] { 2, 4 }));
         }
 
         [Test]

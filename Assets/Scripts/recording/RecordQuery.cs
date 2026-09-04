@@ -19,6 +19,7 @@ namespace recording
         public int? Turn { get; set; }
         public EnumBehaviorRecordSeverity? MinimumSeverity { get; set; }
         public bool ExpandRootCommandChain { get; set; }
+        public bool OnlyProblems { get; set; }
     }
 
     public static class RecordQuery
@@ -117,8 +118,24 @@ namespace recording
             {
                 return false;
             }
+            if (filter.OnlyProblems && !IsProblem(record))
+            {
+                return false;
+            }
 
             return true;
+        }
+
+        public static bool IsProblem(BehaviorRecord record)
+        {
+            if (record == null)
+            {
+                return false;
+            }
+
+            return record.Outcome == EnumBehaviorRecordOutcome.Rejected ||
+                   record.Outcome == EnumBehaviorRecordOutcome.Interrupted ||
+                   record.Severity == EnumBehaviorRecordSeverity.Error;
         }
 
         private static bool MatchesKind(BehaviorRecord record, RecordFilter filter)

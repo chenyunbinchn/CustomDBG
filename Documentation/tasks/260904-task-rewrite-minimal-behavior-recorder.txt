@@ -41,6 +41,7 @@
   [x] 只有语义方法公开的 BehaviorRecorder。
   [x] InMemory 与 JsonLines Sink。
   [x] RecordFilter / RecordQuery。
+  [x] Editor / Development Build 专用的 F8 IMGUI Overlay。
   [x] Battle、Command、Action、Hook 的最小接入。
   [x] 20 个 Editor 测试已编写，并通过运行时及 Editor 程序集编译。
   [x] 精简重设计报告及事件使用规范。
@@ -56,6 +57,7 @@
   [x] ActionExecutor 仍使用 yield return StartCoroutine(action.Execute(...))。
   [x] Filter 展开不会把无 RootCommandId 的记录错误合并。
   [x] 不同领域的 Kind 在编译期类型不兼容，Action 与 Hook 核心数据为必填。
+  [x] Overlay 只读取内存 Sink，最多绘制最近 200 条，不影响 JSONL 与游戏流程。
 
 
 5. 验证记录

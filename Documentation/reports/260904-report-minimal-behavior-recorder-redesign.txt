@@ -106,6 +106,25 @@ HookRecord。没有记录器接口、事件 Hub、Matcher、父子 Scope 或通�
   - 0 号 RootCommandId 统一视为无根，避免把系统行为错误合并成同一命令链。
   - 文件 Sink 初始化失败时继续使用内存 Sink；GameState 分别公开持久日志是否
     可用及实际文件路径。
+  - BehaviorRecorderOverlay 仅在 UNITY_EDITOR 或 DEVELOPMENT_BUILD 编译，由
+    UnityBoostrap 初始化后动态挂载，按 F8 显示或隐藏；关闭时保留 Records (F8)
+    小按钮作为鼠标入口，无需修改 Scene/Prefab。
+  - Overlay 支持领域、Outcome、RootCommandId 和命令链展开筛选，可查看记录详情
+    并复制 JSONL 路径；每次最多绘制最近 200 条。
+  - IMGUI 以 1080p 高度为逻辑基准缩放整个坐标系：4K 默认 200%，1440p 约
+    133%，并提供 A-/百分比复位/A+ 手动倍率；窗口尺寸和位置始终限制在屏幕内。
+  - Overlay 的四边及四角均可拖动调整尺寸，最小逻辑尺寸为 560x400；用户尺寸会
+    被保留，仅在分辨率变化导致越界时收缩。边缘命中区为 14 个逻辑像素，右下角
+    显示明确的缩放把手。拉伸直接读取 Input System 屏幕坐标，翻转 Y 并除以 IMGUI
+    缩放倍率，不依赖 GUI.Window 内部的 MouseDrag/hotControl。时间轴按领域使用固定颜色：Battle
+    橙、Command 蓝、Action 绿、Hook 紫。每行左侧色带由 RootCommandId 稳定计算，
+    因而同一命令链同色、不同命令链异色；无根记录为灰色。问题记录右侧显示红色。
+  - RecordFilter 和 Overlay 支持 OnlyProblems，匹配 Rejected、Interrupted 或 Error，
+    可与领域、Outcome、RootCommandId 等其他条件组合。
+  - Overlay 不显示重复的颜色图例；Outcome 筛选文字直接表达语义颜色：Observed 灰、
+    Succeeded 绿、Rejected 橙红、Interrupted 与 Only Problems 红。
+  - 内存 Sink 用 Version 标记内容变化，Overlay 仅在记录增加或筛选改变时重新
+    查询，不在每次 OnGUI 调用中扫描全部 4096 条记录。
 
 线程约束：Command Submit、Action 执行和记录写入都在权威 Unity 模拟线程串行
 发生。未来网络回调必须先投递到该线程，不能从多个线程直接调用 Submit。不要
