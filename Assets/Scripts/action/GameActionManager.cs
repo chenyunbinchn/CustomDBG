@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using recording;
 using tools.assert;
 
 namespace action
@@ -7,7 +8,13 @@ namespace action
     public class GameActionManager
     {
         public List<GameAction> ActionQueue = new List<GameAction>();
+        private readonly BehaviorRecorder _recorder;
         private uint _index = 0;
+
+        public GameActionManager(BehaviorRecorder recorder)
+        {
+            _recorder = recorder;
+        }
 
         // Note: DECIDED (260717): one shared ActionQueue for all players — action order IS the battle's
         //       factual order (replay & network both rely on it), so NextId ownership stays here.
@@ -25,9 +32,10 @@ namespace action
             return result;
         }
 
-        public void Add(GameAction action)
+        public void Add(GameAction action, ulong rootCommandId)
         {
             ActionQueue.Add(action);
+            _recorder.ActionQueued(action, rootCommandId);
         }
     }
 }

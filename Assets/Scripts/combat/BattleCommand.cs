@@ -10,6 +10,7 @@ namespace combat
     //       See 《260717-rule-multiplayer-battle-model》 §2.
     public readonly struct BattleCommand
     {
+        public readonly ulong CommandId;         // assigned by the authoritative command queue
         public readonly EnumCommandType Type;
         public readonly ActionEntityId Player;   // who issued the command
         public readonly CardInstanceId Card;     // PlayCard: which card (never a hand index)
@@ -17,10 +18,30 @@ namespace combat
 
         public BattleCommand(EnumCommandType type, ActionEntityId player, CardInstanceId card, ActionEntityId target)
         {
+            CommandId = 0;
             Type = type;
             Player = player;
             Card = card;
             Target = target;
+        }
+
+        private BattleCommand(
+            ulong commandId,
+            EnumCommandType type,
+            ActionEntityId player,
+            CardInstanceId card,
+            ActionEntityId target)
+        {
+            CommandId = commandId;
+            Type = type;
+            Player = player;
+            Card = card;
+            Target = target;
+        }
+
+        internal BattleCommand WithCommandId(ulong commandId)
+        {
+            return new BattleCommand(commandId, Type, Player, Card, Target);
         }
     }
 }

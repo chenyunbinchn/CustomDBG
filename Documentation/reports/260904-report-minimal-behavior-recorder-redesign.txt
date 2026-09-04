@@ -1,0 +1,122 @@
+========================================================================
+报告：行为记录器精简重设计
+日期：2026-09-04
+========================================================================
+
+1. 结论
+------------------------------------------------------------------------
+
+记录器值得实现，但当前阶段只需要“命令—Action—Hook”事实链，不需要一次建成
+回放、状态差量、通用事件总线和完整因果图。旧实现的问题不是记录点分散，而是
+记录规则也散落在调用方，并且记录器开始影响 ID、异常和协程控制流。
+
+本次重写采用统一时间轴基类、四个领域 Record、显式 RootCommandId、语义化记录
+方法以及两个实际需要的 Sink。业务组件只报告已经发生的事实；记录器统一决定
+领域 Kind 对应的记录类型、结果、严重度、sequence 和序列化形式。
+
+
+2. 保留的最小模型
+------------------------------------------------------------------------
+
+所有记录通过抽象 BehaviorRecord 共享：
+
+  - SchemaVersion、SessionId、Sequence、UtcTime
+  - BattleId、Turn、RootCommandId
+  - Category、Outcome、Severity 等跨领域查看维度
+
+领域数据分别保存在 sealed 子类：
+
+  - BattleRecord：EnumBattleRecordKind 和战斗生命周期事实。
+  - CommandRecord：EnumCommandRecordKind、CommandType、CommandResult、Source、Target、Card。
+  - ActionRecord：EnumActionRecordKind，以及必填的 ActionId、ActionType。
+  - HookRecord：EnumHookRecordKind，以及必填的 HookType、Source、Target、Value 和监听者信息。
+
+基类不再携带其他领域的可空字段，也不携带统一 Kind。每个子类只接受自己的
+领域 Kind，因此“ActionRecord + HookFired”在编译期类型不匹配，而不是运行时
+校验失败。不使用 IBehaviorRecord 或任意 object payload；时间轴和 Sink 直接以
+BehaviorRecord 基类作为统一类型。
+
+
+3. 依赖与职责
+------------------------------------------------------------------------
+
+  BattleCommandManager
+    无条件分配 CommandId。记录开关不得改变业务身份。
+
+  BehaviorRecorder
+    提供 BattleStarted、CommandSubmitted、ActionCompleted 等语义方法；内部唯一
+    分配 sequence 和公共 Metadata，并构造对应领域子类。它不验证命令、不执行
+    Action、不清队列。
+
+  GameActionManager / ActionExecutor / HookSystem
+    在各自已经存在的事实点通知记录器。RootCommandId 显式传递，不依赖跨帧的
+    Begin/End 栈或全局 current command。
+
+  IBehaviorRecordSink
+    保留是因为内存查看与 JSONL 落盘是两个真实消费者。除此之外不建立接口层。
+
+  RecordQuery
+    先做线性筛选。可选 ExpandRootCommandChain 采用“匹配种子 -> 收集 session +
+    root -> 纳入同链记录 -> 按 session、再按 sequence 排序”，不伪装成祖先/
+    后代图查询。Kind Filter 分为 BattleKinds、CommandKinds、ActionKinds、HookKinds；
+    四组共同构成一个 OR 维度，其他字段仍与该维度执行 AND。
+
+
+4. 明确不做
+------------------------------------------------------------------------
+
+  - 不记录 StateDelta。HP、Block 等状态以后若有稳定的完成通知，记录器监听该
+    通知；在此之前 ActionCompleted 只证明 Action 执行完成。
+  - 不加入 BehaviorEventHub。单一记录消费者不值得为每条事实增加发布器、事件
+    DTO、订阅和失败路由四层结构。
+  - 不捕获并重写 Unity 协程异常语义。
+  - 不维护 ParentRecordId、ActionId -> RecordId 字典或 IncludeDescendants。
+  - 不做全文搜索、索引、检查点、状态哈希和回放。
+
+这些能力不是永久否定，而是在有真实查看器、第二个事件消费者或明确回放验收后
+再独立增加。
+
+
+5. 判断代码为何仍会出现在多个文件
+------------------------------------------------------------------------
+
+记录点必须靠近事实拥有者：命令是否合法只能在 BattleCommandApi 知道，Action
+是否完成只能在 ActionExecutor 知道，Hook 是否匹配只能在 HookSystem 知道。
+把这些判断集中到记录器会迫使它重复或猜测业务逻辑。
+
+需要集中的不是“事实在哪里发生”，而是“事实怎样变成记录”。因此调用点只写
+一个语义通知，所有结构化字段、分类、顺序和写盘策略都集中在 BehaviorRecorder。
+
+
+6. 当前实现结果与边界
+------------------------------------------------------------------------
+
+运行时职责仍收敛在 BehaviorRecord、BehaviorRecorder、BehaviorRecordSinks 和
+RecordQuery；其中记录模型按领域拆为 BattleRecord、CommandRecord、ActionRecord、
+HookRecord。没有记录器接口、事件 Hub、Matcher、父子 Scope 或通用 payload 类型树。
+
+  - BehaviorRecord 是不可直接实例化的公共时间轴基类；四个领域子类均为 sealed。
+  - 公共 Metadata 在构造时复制到基类，JSONL 仍为扁平字段，不产生 metadata 嵌套。
+  - Json.NET 禁用 TypeNameHandling，日志不写入 CLR 类名或程序集名称。
+  - 内存 Sink 默认保存最近 4096 条；完整历史由 JSONL 保存。
+  - JSONL 写入 Application.persistentDataPath/Records，UTF-8 无 BOM。
+  - Rejected、Completed 和 Dispose 都会 Flush。
+  - Dispose 时，Accepted 但未正常完成的命令写 CommandInterrupted；这只是记录
+    未闭合事实，不清理 ActionQueue，也不定义协程异常后的游戏恢复策略。
+  - 0 号 RootCommandId 统一视为无根，避免把系统行为错误合并成同一命令链。
+  - 文件 Sink 初始化失败时继续使用内存 Sink；GameState 分别公开持久日志是否
+    可用及实际文件路径。
+
+线程约束：Command Submit、Action 执行和记录写入都在权威 Unity 模拟线程串行
+发生。未来网络回调必须先投递到该线程，不能从多个线程直接调用 Submit。不要
+为每个 Manager 和 Sink 分别加锁来掩盖错误的线程入口。
+
+生命周期约束：只应在 Action 队列稳定点进入新战斗。测试键若在旧命令执行中
+再次 EnterBattle，本身就会重置正在使用的战斗状态，不属于记录器应修复的行为。
+
+Filter 支持 Category、四组领域 Kind、Outcome、Session、Battle、Turn、
+RootCommandId 和 MinimumSeverity。一次查看单个 JSONL 文件时 RootCommandId 可
+单独使用；合并多个 session 查询时，应同时指定 SessionId，因为不同 session 的
+CommandId 会重新计数。
+
+========================================================================

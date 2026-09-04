@@ -48,6 +48,7 @@ namespace mono
             {
                 BattleApi.EnterBattle(StateManager.BattleState, StateManager.GamePlayerState, StateManager.BattlePlayerStates,
                     StateManager.GameState.RandomManager);
+                StateManager.GameState.BehaviorRecorder.BattleStarted(StateManager.BattleState.TurnNum);
                 _battleUIController?.OpenBattleUi();
             }
 
@@ -96,6 +97,11 @@ namespace mono
                 }
             }
 
+        }
+
+        private void OnDestroy()
+        {
+            StateManager?.GameState?.Dispose();
         }
     }
 }

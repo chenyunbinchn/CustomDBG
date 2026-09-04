@@ -6,6 +6,7 @@ using enums;
 using gameStates;
 using gameStates.transient;
 using hook;
+using recording;
 using tools.assert;
 using UnityEngine;
 
@@ -92,35 +93,43 @@ namespace systems
             EnumPlayCardResult result = CanPlayCard(command, battleState);
             if (result != EnumPlayCardResult.Ok)
             {
+                stateManager.GameState.BehaviorRecorder.CommandRejected(command, result);
                 Debug.Log($"[Command] PlayCard rejected ({result}): player#{command.Player.Id}, card#{command.Card.Value}");
                 return;
             }
 
             BattlePlayerState player = (BattlePlayerState)EntityApi.Resolve(command.Player, battleState);
             CardInstance cardInstance = player.PileManager.Dictionary[command.Card];
+            BehaviorRecorder recorder = stateManager.GameState.BehaviorRecorder;
+            recorder.CommandAccepted(command);
 
             // Note: Energy cost is a card field (plan A). Synthesize the CostEnergyAction from it and queue
             //       it FIRST (pay to play, then effects resolve). The card's Effects never hold a CostEnergy
             //       effect. See 《260717-rule-multiplayer-battle-model》 §4-2 (cost is action-ified, not a
             //       direct mutation in this command function).
-            actionManager.Add(new CostEnergyAction(cardInstance.EnergyCost, actionManager.NextId(), EnumActionStatus.WaitingForExecution));
+            actionManager.Add(
+                new CostEnergyAction(cardInstance.EnergyCost, actionManager.NextId(), EnumActionStatus.WaitingForExecution),
+                command.CommandId);
             for (int i = 0; i < cardInstance.Effects.Length; i++)
             {
-                EffectApi.Translate(cardInstance.Effects[i], command.Player, command.Target, actionManager);
+                EffectApi.Translate(
+                    cardInstance.Effects[i], command.Player, command.Target, actionManager, command.CommandId);
             }
-            actionManager.Add(new PlayedCardToDiscardAction(command.Card, actionManager.NextId(), EnumActionStatus.WaitingForExecution));
+            actionManager.Add(
+                new PlayedCardToDiscardAction(command.Card, actionManager.NextId(), EnumActionStatus.WaitingForExecution),
+                command.CommandId);
 
             // Note: Reactions are queued behind the card's own actions (tail insert), then drained by the
             //       same serial resolution — they are ordinary GameActions, not a special kind.
             HookSystem.Fire(new Hook(EnumHookType.AfterCardPlayed, command.Player, command.Target, 0),
-                stateManager.GameState.HookManager, stateManager, actionManager);
+                stateManager.GameState.HookManager, stateManager, actionManager, command.CommandId);
 
             Debug.Log($"[Command] PlayCard: player#{command.Player.Id} plays {player.PileManager.DescribeCard(command.Card)} -> {actionManager.ActionQueue.Count} actions queued");
             BattleActionContext actionContext = new BattleActionContext(
                 battleState,
                 player,
                 stateManager.GameState.RandomManager);
-            stateManager.GameState.ActionExecutor.Kick(actionManager, actionContext);
+            stateManager.GameState.ActionExecutor.Kick(actionManager, actionContext, command.CommandId);
         }
     }
 }

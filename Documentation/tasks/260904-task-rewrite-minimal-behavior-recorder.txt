@@ -1,0 +1,70 @@
+========================================================================
+任务：从干净基线重写精简行为记录器
+日期：2026-09-04
+状态：实现完成；Unity EditMode 执行待项目解锁
+========================================================================
+
+1. 目标
+------------------------------------------------------------------------
+
+实现一条可实际使用、不会改变游戏执行结果的最小行为记录链：
+
+  BattleStarted
+    -> CommandSubmitted / Accepted / Rejected
+    -> ActionQueued / Started / Completed
+    -> HookFired / HookMatched
+    -> CommandCompleted / Interrupted
+
+记录必须严格按 sequence 排序，并能按常用字段筛选或展开一条命令产生的全部记录。
+
+
+2. 约束
+------------------------------------------------------------------------
+
+  - CommandId 由 BattleCommandManager 无条件分配，记录器只能读取。
+  - ActionId 继续由 GameActionManager 分配。
+  - 不引入全局事件总线、StateDelta、父子记录图、全文搜索或通用 object payload。
+  - 时间轴使用抽象 BehaviorRecord；领域字段只存在于对应的 sealed 子类。
+  - Kind 也按 Battle、Command、Action、Hook 拆分，不保留跨领域统一 Kind 枚举。
+  - 业务调用点只调用 CommandSubmitted、ActionStarted 等语义方法，不拼装记录。
+  - 不手动推进 IEnumerator，不改变 Action 的执行、失败或队列清理策略。
+  - 记录与写盘失败必须被记录器隔离，不能向游戏流程抛出异常。
+  - 只保留有两个真实实现的 Sink 抽象：内存与 JSON Lines。
+  - 查询按 Session、再按 Sequence 明确排序；命令链展开只依据非空 RootCommandId。
+
+
+3. 交付物
+------------------------------------------------------------------------
+
+  [x] BehaviorRecord 公共基类及 Battle、Command、Action、Hook 四个领域子类。
+  [x] 四个领域各自拥有强类型 Kind 枚举。
+  [x] 只有语义方法公开的 BehaviorRecorder。
+  [x] InMemory 与 JsonLines Sink。
+  [x] RecordFilter / RecordQuery。
+  [x] Battle、Command、Action、Hook 的最小接入。
+  [x] 20 个 Editor 测试已编写，并通过运行时及 Editor 程序集编译。
+  [x] 精简重设计报告及事件使用规范。
+
+
+4. 验收
+------------------------------------------------------------------------
+
+  [x] 关闭或写盘失败时，业务 ID、队列顺序和游戏状态不变。
+  [x] 非法出牌只有 Submitted + Rejected，不产生 Action。
+  [x] 合法出牌可按 RootCommandId 查出完整有序链。
+  [x] Hook 触发和匹配可见，反应 Action 仍按原有尾插顺序执行。
+  [x] ActionExecutor 仍使用 yield return StartCoroutine(action.Execute(...))。
+  [x] Filter 展开不会把无 RootCommandId 的记录错误合并。
+  [x] 不同领域的 Kind 在编译期类型不兼容，Action 与 Hook 核心数据为必填。
+
+
+5. 验证记录
+------------------------------------------------------------------------
+
+  - 领域 Record 重构后执行 dotnet build CustomDBG.sln --no-restore：Runtime 与
+    Editor 程序集均通过，0 error；Unity 已将新增子类写入生成 csproj。
+  - 仅出现项目已有的 System.Net.Http 4.1.2/4.2.0 引用冲突警告。
+  - Unity EditMode 测试未执行：当前项目的 Temp/UnityLockfile 正被现有 Unity
+    进程持有；批处理实例返回 1 且未产生测试 XML。没有关闭或干扰现有编辑器。
+
+========================================================================

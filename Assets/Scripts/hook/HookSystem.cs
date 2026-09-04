@@ -2,6 +2,7 @@ using action;
 using combat;
 using enums;
 using gameStates;
+using recording;
 using systems;
 using tools.assert;
 
@@ -16,8 +17,10 @@ namespace hook
     public static class HookSystem
     {
         public static void Fire(in Hook hook, HookManager hookManager, StateManager stateManager,
-            GameActionManager actionManager)
+            GameActionManager actionManager, ulong rootCommandId)
         {
+            BehaviorRecorder recorder = stateManager.GameState.BehaviorRecorder;
+            recorder.HookFired(hook, rootCommandId);
             hookManager.IterateHookListeners(stateManager);
 
             for (int i = 0; i < hookManager.AllHookListeners.Count; i++)
@@ -32,9 +35,11 @@ namespace hook
                     continue;
                 }
 
+                recorder.HookMatched(hook, listener, rootCommandId);
+
                 // Note: the listener's Owner is the effect's source, so Self/User resolve to whoever the
                 //       listener acts for — not to whatever host object physically carries it.
-                EffectApi.Translate(listener.Effect, listener.Owner, hook.Target, actionManager);
+                EffectApi.Translate(listener.Effect, listener.Owner, hook.Target, actionManager, rootCommandId);
             }
         }
 
