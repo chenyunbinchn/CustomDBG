@@ -7,7 +7,7 @@ namespace recording
     [Serializable]
     public abstract class BehaviorRecord
     {
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 2;
 
         public int SchemaVersion { get; }
         public string SessionId { get; }

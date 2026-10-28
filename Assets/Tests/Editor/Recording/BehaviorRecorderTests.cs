@@ -68,7 +68,9 @@ namespace recording.tests
 
             DamageAction action = new DamageAction(
                 3,
+                queuedCommand.Player,
                 queuedCommand.Target,
+                null,
                 new action.ActionId(4),
                 EnumActionStatus.WaitingForExecution);
             recorder.ActionQueued(action, queuedCommand.CommandId);
@@ -296,11 +298,12 @@ namespace recording.tests
                 Record(2, EnumCommandRecordKind.CommandRejected, 1),
                 Record(3, EnumActionRecordKind.ActionCompleted, 1),
                 Record(4, EnumCommandRecordKind.CommandInterrupted, 2),
+                Record(5, EnumActionRecordKind.ActionFailed, 3),
             };
 
             var result = RecordQuery.Apply(input, new RecordFilter { OnlyProblems = true });
 
-            Assert.That(result.Select(record => record.Sequence), Is.EqualTo(new ulong[] { 2, 4 }));
+            Assert.That(result.Select(record => record.Sequence), Is.EqualTo(new ulong[] { 2, 4, 5 }));
         }
 
         [Test]

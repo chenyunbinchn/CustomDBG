@@ -5,9 +5,7 @@ using combat;
 using enums;
 using gameStates;
 using gameStates.transient;
-using hook;
 using recording;
-using tools.assert;
 using UnityEngine;
 
 namespace systems
@@ -34,7 +32,16 @@ namespace systems
             ActionExecutor actionExecutor = stateManager.GameState.ActionExecutor;
             BattleCommandManager commandManager = stateManager.GameState.BattleCommandManager;
 
-            if (actionExecutor.IsRunning || actionManager.ActionQueue.Count > 0)
+            if (actionExecutor.IsRunning)
+            {
+                if (actionExecutor.CurrentAction is HandCardChooseAction choiceAction &&
+                    commandManager.TryDequeueChoice(out BattleCommand choiceCommand))
+                {
+                    ExecuteChoice(choiceCommand, choiceAction, stateManager);
+                }
+                return;
+            }
+            if (actionManager.ActionQueue.Count > 0)
             {
                 return;
             }
@@ -49,8 +56,15 @@ namespace systems
                 case EnumCommandType.PlayCard:
                     ExecutePlayCard(command, stateManager);
                     break;
+                case EnumCommandType.ChooseCard:
+                case EnumCommandType.CancelChoice:
+                    stateManager.GameState.BehaviorRecorder.CommandRejected(
+                        command, EnumPlayCardResult.NoPendingChoice);
+                    break;
                 default:
-                    MyAssert.Assert(false, $"Unhandled EnumCommandType: {command.Type}");
+                    stateManager.GameState.BehaviorRecorder.CommandRejected(
+                        command, EnumPlayCardResult.InvalidError);
+                    Debug.LogWarning($"[Command] Rejected unsupported command type: {command.Type}");
                     break;
             }
         }
@@ -59,14 +73,30 @@ namespace systems
         //       ExecutePlayCard — one rule set, no drift. Read-only.
         public static EnumPlayCardResult CanPlayCard(BattleCommand command, BattleState battleState)
         {
-            MyAssert.Assert(command.Player.Type == EnumEntityType.Player, $"PlayCard command from non-player entity {command.Player.Type}!");
+            if (battleState.IsFaulted)
+            {
+                return EnumPlayCardResult.BattleFaulted;
+            }
+            if (battleState.IsBattleOver)
+            {
+                return EnumPlayCardResult.BattleEnded;
+            }
+            if (command.Player.Type != EnumEntityType.Player ||
+                !EntityApi.TryResolve(command.Player, battleState, out ICombatActor actor) ||
+                !(actor is BattlePlayerState player))
+            {
+                return EnumPlayCardResult.InvalidPlayer;
+            }
+            if (player.Hp <= 0)
+            {
+                return EnumPlayCardResult.TargetDead;
+            }
 
             if (!battleState.IsPlayerTurn)
             {
                 return EnumPlayCardResult.NotPlayerTurn;
             }
 
-            BattlePlayerState player = (BattlePlayerState)EntityApi.Resolve(command.Player, battleState);
             bool found = player.PileManager.Dictionary.TryGetValue(command.Card, out CardInstance cardInstance);
             if (!found)
             {
@@ -80,6 +110,15 @@ namespace systems
             if (cardInstance.EnergyCost > player.PlayerEnergy)
             {
                 return EnumPlayCardResult.NotEnoughEnergy;
+            }
+
+            for (int i = 0; i < cardInstance.Effects.Length; i++)
+            {
+                if (!EffectApi.IsTargetValid(
+                        cardInstance.Effects[i], command.Player, command.Target, command.Card, battleState))
+                {
+                    return EnumPlayCardResult.InvalidTarget;
+                }
             }
 
             return EnumPlayCardResult.Ok;
@@ -102,34 +141,60 @@ namespace systems
             CardInstance cardInstance = player.PileManager.Dictionary[command.Card];
             BehaviorRecorder recorder = stateManager.GameState.BehaviorRecorder;
             recorder.CommandAccepted(command);
+            BattleActionContext actionContext = new BattleActionContext(stateManager, player, command.CommandId);
 
+            try
+            {
             // Note: Energy cost is a card field (plan A). Synthesize the CostEnergyAction from it and queue
             //       it FIRST (pay to play, then effects resolve). The card's Effects never hold a CostEnergy
             //       effect. See 《260717-rule-multiplayer-battle-model》 §4-2 (cost is action-ified, not a
             //       direct mutation in this command function).
             actionManager.Add(
-                new CostEnergyAction(cardInstance.EnergyCost, actionManager.NextId(), EnumActionStatus.WaitingForExecution),
+                new HandCardToPlayAction(command.Player, command.Card, actionManager.NextId(),
+                    EnumActionStatus.WaitingForExecution),
+                command.CommandId);
+            actionManager.Add(
+                new CostEnergyAction(cardInstance.EnergyCost, command.Player, actionManager.NextId(),
+                    EnumActionStatus.WaitingForExecution),
                 command.CommandId);
             for (int i = 0; i < cardInstance.Effects.Length; i++)
             {
-                EffectApi.Translate(
-                    cardInstance.Effects[i], command.Player, command.Target, actionManager, command.CommandId);
+                EffectApi.Translate(cardInstance.Effects[i], command.Player, command.Target, command.Card,
+                    actionContext);
             }
             actionManager.Add(
-                new PlayedCardToDiscardAction(command.Card, actionManager.NextId(), EnumActionStatus.WaitingForExecution),
+                new PlayedCardToDiscardAction(command.Player, command.Card, command.Target,
+                    actionManager.NextId(), EnumActionStatus.WaitingForExecution),
                 command.CommandId);
 
-            // Note: Reactions are queued behind the card's own actions (tail insert), then drained by the
-            //       same serial resolution — they are ordinary GameActions, not a special kind.
-            HookSystem.Fire(new Hook(EnumHookType.AfterCardPlayed, command.Player, command.Target, 0),
-                stateManager.GameState.HookManager, stateManager, actionManager, command.CommandId);
-
             Debug.Log($"[Command] PlayCard: player#{command.Player.Id} plays {player.PileManager.DescribeCard(command.Card)} -> {actionManager.ActionQueue.Count} actions queued");
-            BattleActionContext actionContext = new BattleActionContext(
-                battleState,
-                player,
-                stateManager.GameState.RandomManager);
             stateManager.GameState.ActionExecutor.Kick(actionManager, actionContext, command.CommandId);
+            }
+            catch (System.Exception exception)
+            {
+                actionManager.ActionQueue.Clear();
+                battleState.MarkFault($"Failed to expand PlayCard command {command.CommandId}: {exception.Message}");
+                recorder.CommandInterrupted(command.CommandId);
+                Debug.LogException(exception);
+            }
+        }
+
+        private static void ExecuteChoice(BattleCommand command, HandCardChooseAction choiceAction,
+            StateManager stateManager)
+        {
+            bool accepted = command.ChoiceId == choiceAction.ChoiceId &&
+                            (command.Type == EnumCommandType.ChooseCard
+                                ? choiceAction.TryChoose(command.Player, command.Card)
+                                : choiceAction.TryCancel(command.Player));
+            if (!accepted)
+            {
+                stateManager.GameState.BehaviorRecorder.CommandRejected(
+                    command, EnumPlayCardResult.InvalidChoice);
+                return;
+            }
+
+            stateManager.GameState.BehaviorRecorder.CommandAccepted(command);
+            stateManager.GameState.BehaviorRecorder.CommandCompleted(command.CommandId);
         }
     }
 }

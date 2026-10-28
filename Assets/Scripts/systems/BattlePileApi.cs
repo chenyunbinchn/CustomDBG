@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using cards.instance;
 using gameStates.transient;
@@ -7,10 +8,36 @@ using UnityEngine;
 
 namespace systems
 {
+    public enum EnumDrawStoppedReason
+    {
+        Completed,
+        NoCardsAvailable,
+        HandFull,
+    }
+
+    public sealed class DrawResult
+    {
+        public int Requested { get; }
+        public List<CardInstanceId> DrawnCards { get; }
+        public int ReshuffleCount { get; }
+        public EnumDrawStoppedReason StoppedReason { get; }
+
+        public DrawResult(int requested, List<CardInstanceId> drawnCards, int reshuffleCount,
+            EnumDrawStoppedReason stoppedReason)
+        {
+            Requested = requested;
+            DrawnCards = drawnCards;
+            ReshuffleCount = reshuffleCount;
+            StoppedReason = stoppedReason;
+        }
+    }
+
     // Note: Stateless operations over a player's card piles — the List<CardInstanceId> piles on
     //       BattlePlayerState (Draw/Hand/Discard/Play/Exhaust). Systems do logic, state holds data.
     public static class BattlePileApi
     {
+        public const int MaxHandSize = 10;
+
         // Note: Replace a pile's contents with source (clear then append). Order follows source enumeration.
         public static void FillFrom(List<CardInstanceId> pile, IEnumerable<CardInstanceId> source)
         {
@@ -23,6 +50,23 @@ namespace systems
         {
             to.AddRange(from);
             from.Clear();
+        }
+
+        public static bool MoveCard(List<CardInstanceId> from, List<CardInstanceId> to, CardInstanceId card)
+        {
+            int sourceIndex = from.IndexOf(card);
+            if (sourceIndex < 0)
+            {
+                return false;
+            }
+            if (to.Contains(card))
+            {
+                throw new InvalidOperationException($"Card #{card.Value} already exists in the destination pile.");
+            }
+
+            from.RemoveAt(sourceIndex);
+            to.Add(card);
+            return true;
         }
 
         // Note: Shuffle a pile on the shuffle RNG domain. StableShuffle sorts into a canonical order
@@ -67,23 +111,54 @@ namespace systems
         }
 
         // Draw from DrawPile
-        public static void DrawCards(BattlePlayerState state, int count, RandomManager randomManager)
+        public static DrawResult DrawCards(BattlePlayerState state, int count, RandomManager randomManager)
         {
-            int drawn = 0;
+            if (state == null)
+            {
+                throw new ArgumentNullException(nameof(state));
+            }
+            if (randomManager == null)
+            {
+                throw new ArgumentNullException(nameof(randomManager));
+            }
+            if (count < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(count), "Draw count cannot be negative.");
+            }
+
+            List<CardInstanceId> drawnCards = new List<CardInstanceId>(count);
+            int reshuffleCount = 0;
+            EnumDrawStoppedReason stoppedReason = EnumDrawStoppedReason.Completed;
             for (int i = 0; i < count; i++)
             {
+                if (state.HandCards.Count >= MaxHandSize)
+                {
+                    stoppedReason = EnumDrawStoppedReason.HandFull;
+                    break;
+                }
                 if (state.DrawPile.Count == 0)
                 {
                     if (state.DiscardPile.Count == 0)
                     {
+                        stoppedReason = EnumDrawStoppedReason.NoCardsAvailable;
                         break; // No card left to draw
                     }
                     ReshuffleDiscardIntoDraw(state, randomManager);
+                    reshuffleCount++;
                 }
-                Draw(state.DrawPile, state.HandCards, 1);
-                drawn++;
+                int top = state.DrawPile.Count - 1;
+                CardInstanceId drawnCard = state.DrawPile[top];
+                if (state.HandCards.Contains(drawnCard))
+                {
+                    throw new InvalidOperationException(
+                        $"Card #{drawnCard.Value} already exists in HandCards while drawing.");
+                }
+                state.DrawPile.RemoveAt(top);
+                state.HandCards.Add(drawnCard);
+                drawnCards.Add(drawnCard);
             }
-            Debug.Log($"[Pile] DrawCards -> drew {drawn}/{count}; Hand({state.HandCards.Count}): {state.PileManager.DescribePile(state.HandCards)}; DrawPile={state.DrawPile.Count}, Discard={state.DiscardPile.Count}");
+            Debug.Log($"[Pile] DrawCards -> drew {drawnCards.Count}/{count}; Hand({state.HandCards.Count}): {state.PileManager.DescribePile(state.HandCards)}; DrawPile={state.DrawPile.Count}, Discard={state.DiscardPile.Count}; stopped={stoppedReason}");
+            return new DrawResult(count, drawnCards, reshuffleCount, stoppedReason);
         }
     }
 }

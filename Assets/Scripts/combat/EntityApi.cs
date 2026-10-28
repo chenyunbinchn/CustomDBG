@@ -1,6 +1,6 @@
+using System;
 using enums;
 using gameStates.transient;
-using tools.assert;
 
 namespace combat
 {
@@ -12,24 +12,47 @@ namespace combat
     {
         public static ICombatActor Resolve(ActionEntityId id, BattleState battleState)
         {
+            if (TryResolve(id, battleState, out ICombatActor actor))
+            {
+                return actor;
+            }
+
+            if (id.Type == EnumEntityType.Player)
+            {
+                throw new ArgumentOutOfRangeException(nameof(id), $"Player index {id.Id} is out of range.");
+            }
+            return null;
+        }
+
+        public static bool TryResolve(ActionEntityId id, BattleState battleState, out ICombatActor actor)
+        {
+            actor = null;
+            if (battleState == null)
+            {
+                return false;
+            }
+
             switch (id.Type)
             {
                 case EnumEntityType.Player:
-                    MyAssert.Assert(battleState.Players != null && id.Id < (uint)battleState.Players.Length,
-                        $"Player index {id.Id} out of range!");
-                    return battleState.Players[(int)id.Id];
+                    if (battleState.Players == null || id.Id >= (uint)battleState.Players.Length)
+                    {
+                        return false;
+                    }
+                    actor = battleState.Players[(int)id.Id];
+                    return actor != null;
                 case EnumEntityType.Enemy:
                     for (int i = 0; i < battleState.EnemyList.Count; i++)
                     {
                         if (battleState.EnemyList[i].Id == id)
                         {
-                            return battleState.EnemyList[i];
+                            actor = battleState.EnemyList[i];
+                            return true;
                         }
                     }
-                    return null; // enemy no longer in battle — caller skips
+                    return false; // enemy no longer in battle — caller skips
                 default:
-                    MyAssert.Assert(false, $"Unknown EntityType {id.Type}");
-                    return null;
+                    return false;
             }
         }
     }

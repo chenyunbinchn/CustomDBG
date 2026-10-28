@@ -1,4 +1,9 @@
 ========================================================================
+
+2026-09-04 更新：本报告记录的是修复前基线。当前 Action 修复状态、验证结果和剩余跨系统
+事项见 Documentation/tasks/260903-task-complete-game-actions.txt；执行语义见
+Documentation/documentations/260904-game-action-execution-standard.txt。
+
   GameAction 全量缺口审计报告
   日期：2026-09-03
 ========================================================================

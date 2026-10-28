@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using enums;
 using hook;
 
 namespace combat
@@ -10,5 +12,6 @@ namespace combat
         int Hp { get; set; }
         int Block { get; set; }
         ActionEntityId Id { get; }
+        Dictionary<EnumStatusType, int> StatusStacks { get; }
     }
 }

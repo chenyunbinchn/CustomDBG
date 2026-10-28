@@ -5,5 +5,7 @@ namespace recording.enums
         ActionQueued,
         ActionStarted,
         ActionCompleted,
+        ActionCanceled,
+        ActionFailed,
     }
 }

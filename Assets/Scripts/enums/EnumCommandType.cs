@@ -4,5 +4,7 @@ namespace enums
     {
         None = 0,
         PlayCard,
+        ChooseCard,
+        CancelChoice,
     }
 }

@@ -40,5 +40,30 @@ namespace combat
             Pending.RemoveAt(0);
             return result;
         }
+
+        public bool TryDequeueChoice(out BattleCommand command)
+        {
+            for (int i = 0; i < Pending.Count; i++)
+            {
+                if (Pending[i].Type != enums.EnumCommandType.ChooseCard &&
+                    Pending[i].Type != enums.EnumCommandType.CancelChoice)
+                {
+                    continue;
+                }
+
+                command = Pending[i];
+                Pending.RemoveAt(i);
+                return true;
+            }
+
+            command = default;
+            return false;
+        }
+
+        public void Reset()
+        {
+            Pending.Clear();
+            _nextCommandId = 1;
+        }
     }
 }

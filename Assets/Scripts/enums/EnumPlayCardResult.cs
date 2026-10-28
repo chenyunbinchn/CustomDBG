@@ -8,5 +8,12 @@ namespace enums
         CardNotFound,
         CardNotInHand,
         NotEnoughEnergy,
+        InvalidPlayer,
+        InvalidTarget,
+        TargetDead,
+        BattleEnded,
+        BattleFaulted,
+        NoPendingChoice,
+        InvalidChoice,
     }
 }

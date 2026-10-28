@@ -100,7 +100,17 @@ namespace recording
 
         public void ActionCompleted(GameAction action, ulong rootCommandId)
         {
-            RecordAction(EnumActionRecordKind.ActionCompleted, action, rootCommandId);
+            RecordAction(EnumActionRecordKind.ActionCompleted, action, rootCommandId, action.ResultSummary);
+        }
+
+        public void ActionCanceled(GameAction action, ulong rootCommandId)
+        {
+            RecordAction(EnumActionRecordKind.ActionCanceled, action, rootCommandId, action.ResultSummary);
+        }
+
+        public void ActionFailed(GameAction action, ulong rootCommandId, Exception exception)
+        {
+            RecordAction(EnumActionRecordKind.ActionFailed, action, rootCommandId, exception?.Message);
         }
 
         public void HookFired(in Hook firedHook, ulong rootCommandId)
@@ -123,6 +133,20 @@ namespace recording
             _openCommandIds.Remove(rootCommandId);
             Append(new CommandRecord(
                 EnumCommandRecordKind.CommandCompleted,
+                CreateMetadata(rootCommandId)));
+            Flush();
+        }
+
+        public void CommandInterrupted(ulong rootCommandId)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _openCommandIds.Remove(rootCommandId);
+            Append(new CommandRecord(
+                EnumCommandRecordKind.CommandInterrupted,
                 CreateMetadata(rootCommandId)));
             Flush();
         }
@@ -198,7 +222,8 @@ namespace recording
                     result,
                     command.Player,
                     command.Target,
-                    command.Card));
+                    command.Card,
+                    command.ChoiceId));
             }
             catch (Exception exception)
             {
@@ -206,7 +231,7 @@ namespace recording
             }
         }
 
-        private void RecordAction(EnumActionRecordKind kind, GameAction action, ulong rootCommandId)
+        private void RecordAction(EnumActionRecordKind kind, GameAction action, ulong rootCommandId, string message = null)
         {
             if (_disposed)
             {
@@ -219,7 +244,8 @@ namespace recording
                     kind,
                     CreateMetadata(rootCommandId),
                     action.Id,
-                    action.GetType().Name));
+                    action.GetType().Name,
+                    message));
             }
             catch (Exception exception)
             {

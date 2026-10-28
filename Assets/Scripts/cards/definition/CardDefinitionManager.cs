@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using enums;
 using gameEffects;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
@@ -21,7 +23,8 @@ namespace cards.definition
             _cards.Clear();
             _cardImages.Clear();
             CardLibraryData data = JsonConvert.DeserializeObject<CardLibraryData>(cardsJson, new StringEnumConverter());
-            MyAssert.Assert(data != null && data.cards != null, "cards.json failed to parse, or has no 'cards' array!");
+            if (data?.cards == null)
+                throw new ArgumentException("cards.json failed to parse, or has no 'cards' array!", nameof(cardsJson));
             LoadFromLibrary(data);
         }
 
@@ -59,12 +62,20 @@ namespace cards.definition
         {
             foreach (CardDefinitionAuthoring card in data.cards)
             {
-                MyAssert.Assert(card.effectAuthoringArray != null && card.effectAuthoringArray.Length > 0,
-                    "card.effectAuthoringArray empty, can not load! Check cards.json, idName: " + card.idName);
+                if (card == null)
+                    throw new ArgumentException("cards.json contains a null card definition.");
+                if (string.IsNullOrWhiteSpace(card.idName))
+                    throw new ArgumentException("cards.json contains a card with no idName.");
+                if (card.energyCost < 0)
+                    throw new ArgumentException($"card '{card.idName}' has a negative energy cost.");
+                if (card.effectAuthoringArray == null || card.effectAuthoringArray.Length == 0)
+                    throw new ArgumentException(
+                        "card.effectAuthoringArray empty, can not load! Check cards.json, idName: " + card.idName);
 
                 Effect[] effects = new Effect[card.effectAuthoringArray.Length];
                 for (int i = 0; i < card.effectAuthoringArray.Length; i++)
                 {
+                    ValidateEffect(card.effectAuthoringArray[i], card.idName, i);
                     effects[i] = card.effectAuthoringArray[i].CreateRuntimeEffect();
                 }
 
@@ -82,6 +93,34 @@ namespace cards.definition
                     _cardImages.Add(newId, sprite);
                 }
             }
+        }
+
+        private static void ValidateEffect(gameEffects.authoring.EffectAuthoring effect, string cardName, int index)
+        {
+            string location = $"card '{cardName}' effect[{index}]";
+            if (!Enum.IsDefined(typeof(EnumEffectType), effect.effectType))
+                throw new ArgumentException($"{location} uses unknown EffectType value {(int)effect.effectType}.");
+            if (!Enum.IsDefined(typeof(EnumTargetType), effect.targetType))
+                throw new ArgumentException($"{location} uses unknown TargetType value {(int)effect.targetType}.");
+            if (!Enum.IsDefined(typeof(EnumStatusType), effect.statusType))
+                throw new ArgumentException($"{location} uses unknown StatusType value {(int)effect.statusType}.");
+            if (effect.effectType == EnumEffectType.None || effect.effectType == EnumEffectType.CostEnergy)
+                throw new ArgumentException($"{location} uses unsupported EffectType {effect.effectType}.");
+            if (effect.value < 0)
+                throw new ArgumentException($"{location} has a negative value.");
+            if (effect.targetType == EnumTargetType.None)
+                throw new ArgumentException($"{location} has no target type.");
+            if (effect.effectType == EnumEffectType.ApplyStatus &&
+                (effect.statusType == EnumStatusType.None || effect.value == 0))
+                throw new ArgumentException($"{location} must specify a positive status amount and status type.");
+            if (effect.effectType != EnumEffectType.ApplyStatus && effect.statusType != EnumStatusType.None)
+                throw new ArgumentException($"{location} specifies a status for a non-status effect.");
+            if (effect.effectType == EnumEffectType.Exhaust && effect.targetType != EnumTargetType.Self)
+                throw new ArgumentException($"{location}: Exhaust currently supports Self only.");
+            if ((effect.effectType == EnumEffectType.DrawCards || effect.effectType == EnumEffectType.GainEnergy) &&
+                effect.targetType != EnumTargetType.Self && effect.targetType != EnumTargetType.User &&
+                effect.targetType != EnumTargetType.SelectedAlly && effect.targetType != EnumTargetType.AllAllies)
+                throw new ArgumentException($"{location}: {effect.effectType} requires a player target.");
         }
     }
 }
