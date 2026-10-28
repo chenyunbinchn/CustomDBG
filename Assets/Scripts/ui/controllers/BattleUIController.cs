@@ -72,7 +72,7 @@ namespace ui.controllers
             }
 
             MyAssert.Assert(unityBootstrap != null, "BattleUIController requires UnityBoostrap.");
-            _presenter = new BattlePresenter(unityBootstrap.StateManager, playerIndex,
+            _presenter = new BattlePresenter(unityBootstrap.StateManager, unityBootstrap.CardArtworkCatalog, playerIndex,
                 cardPileDialogModalAddress, cardDetailModalAddress);
             // TODO: Replace the scene reference with the final game-flow dependency injection path.
             // TODO: Select the locally controlled player instead of using a serialized player index.

@@ -5,7 +5,7 @@ using gameEffects.authoring;
 namespace cards.definition
 {
     // Note: Designer-facing card data, deserialized from JSON (StreamingAssets/cards.json) by
-    //       CardDefinitionManager. Plain data — no Unity object refs (sprite is a name, resolved at load).
+    //       CardDefinitionManager. Plain data — no Unity object refs.
     [Serializable]
     public class CardDefinitionAuthoring
     {
@@ -15,7 +15,7 @@ namespace cards.definition
         public int energyCost;
         public EffectAuthoring[] effectAuthoringArray;
         public string description;
-        // Note: Sprite resolved by name at load (Resources.Load, plan S1). Empty = no art yet.
+        // Client-only metadata read by ui.loading.CardArtworkCatalog; ignored by rule loading.
         public string imageName;
     }
 }

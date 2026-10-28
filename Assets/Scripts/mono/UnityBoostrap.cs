@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using combat;
 using enums;
 using gameStates;
@@ -7,6 +7,7 @@ using recording;
 using systems;
 using tools.assert;
 using ui.controllers;
+using ui.loading;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -17,6 +18,8 @@ namespace mono
         [SerializeField] private string cardsJsonFileName = "cards.json";
         public StateManager StateManager = new StateManager();
 
+        public CardArtworkCatalog CardArtworkCatalog { get; } = new CardArtworkCatalog();
+
         private BattleUIController _battleUIController;
 
         private void Start()
@@ -26,6 +29,7 @@ namespace mono
             string cardsJson = File.ReadAllText(Path.Combine(Application.streamingAssetsPath, cardsJsonFileName));
             // Todo: Base on room's player number set playerNum
             StateManager.Init(cardsJson, this, 4);
+            CardArtworkCatalog.Init(cardsJson);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             BehaviorRecorderOverlay recorderOverlay = GetComponent<BehaviorRecorderOverlay>();
             if (recorderOverlay == null)
