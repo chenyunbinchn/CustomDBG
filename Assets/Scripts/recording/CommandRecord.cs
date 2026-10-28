@@ -15,6 +15,7 @@ namespace recording
         public ActionEntityId? Source { get; }
         public ActionEntityId? Target { get; }
         public CardInstanceId? Card { get; }
+        public ulong? ChoiceId { get; }
 
         public override BehaviorRecordCategory Category => BehaviorRecordCategory.Command;
 
@@ -50,7 +51,8 @@ namespace recording
             EnumPlayCardResult? commandResult = null,
             ActionEntityId? source = null,
             ActionEntityId? target = null,
-            CardInstanceId? card = null)
+            CardInstanceId? card = null,
+            ulong? choiceId = null)
             : base(metadata)
         {
             Kind = kind;
@@ -59,6 +61,7 @@ namespace recording
             Source = source;
             Target = target;
             Card = card;
+            ChoiceId = choiceId == 0 ? null : choiceId;
         }
     }
 }

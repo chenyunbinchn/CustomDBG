@@ -756,11 +756,13 @@ namespace recording
                        $"result={commandRecord.CommandResult?.ToString() ?? "-"} " +
                        $"source={commandRecord.Source?.ToString() ?? "-"} " +
                        $"target={commandRecord.Target?.ToString() ?? "-"} " +
-                       $"card={commandRecord.Card?.ToString() ?? "-"}";
+                       $"card={commandRecord.Card?.ToString() ?? "-"} " +
+                       $"choice={commandRecord.ChoiceId?.ToString() ?? "-"}";
             }
             if (record is ActionRecord actionRecord)
             {
-                return $"action={actionRecord.ActionId} type={actionRecord.ActionType}";
+                return $"action={actionRecord.ActionId} type={actionRecord.ActionType} " +
+                       $"message={actionRecord.Message ?? "-"}";
             }
             if (record is HookRecord hookRecord)
             {

@@ -1,0 +1,89 @@
+========================================================================
+  规范：GameAction 执行与结果语义
+  日期：2026-09-04
+  状态：active
+========================================================================
+
+1. Action 与 Context
+
+  - GameAction 必须携带会改变业务含义的事实：Source、Target、Player、Card、Value。
+  - BattleActionContext 只提供本次结算共享的世界与服务：BattleState、RandomManager、
+    GameActionManager、StateManager、RootCommandId。PlayerState 仅表示命令发起者的便捷引用，
+    不得被通用 Action 当作隐式目标。
+  - 实体使用 ActionEntityId，卡牌使用 CardInstanceId；Action 和 Command 禁止保存 UI 下标。
+  - Action 构造时拒绝静态非法值；执行时重新检查会随前序 Action 改变的不变量。
+
+2. 命令、目标与确定性
+
+  - 普通战斗输入只通过 BattleCommandManager -> BattleCommandApi -> GameActionManager。
+  - PlayCard 在出队时校验玩家、回合、手牌、能量和每个 Effect 的目标。
+  - Self/User 指向 Effect source；SelectedEnemy/SelectedAlly 必须为对应类型的存活实体；
+    AllEnemy 按 EntityId 排序展开；AllAllies 按玩家数组顺序展开；RandomEnemy 只使用 combat
+    RNG 域。不存在 fallback 到 picked 的行为。
+  - 卡牌数据加载时拒绝未知枚举、None、作者配置的 CostEnergy、负 Value、非法状态与目标
+    组合。运行时仍遇到不支持组合时进入 BattleFaulted，而不是静默完成。
+  - 单条根命令最多执行 1024 个 Action；超限确定性中断，用于阻断 Hook 循环展开。
+
+3. Action 状态、异常与 recording
+
+  - 正常状态流为 WaitingForExecution -> Executing -> Finished。
+  - 选择 Action 可进入 GatheringPlayerChoice -> ReadyToResumeExecuting，或 Canceled。
+  - Action 迭代器、结果检查或不变量发生异常时，Action 进入 Faulted，BattleState 进入
+    BattleFaulted，根命令记录 CommandInterrupted；执行器必须在 finally 中释放 IsRunning、
+    CurrentAction 和 RootCommandId。
+  - recording schema version 为 2。ActionCompleted 记录 ResultSummary；取消和故障分别记录
+    ActionCanceled/ActionFailed；Choice command 记录 ChoiceId。recording 失败不得改变模拟结果。
+
+4. 卡牌生命周期
+
+  - 打牌批次固定为：HandCardToPlay（Hand -> Play）-> CostEnergy -> 卡牌 Effects ->
+    PlayedCardToDiscard。
+  - 普通结束为 Play -> Discard。若前序 Exhaust 已将牌放入 ExhaustedPile，收尾 Action 返回
+    destination=Exhaust，不得再次弃置；其他来源缺失属于不变量故障。
+  - ExhaustCardAction 允许从 Play 或 Hand 移到 ExhaustedPile；DiscardHandCardAction 只允许
+    Hand -> Discard。多卡 Action 必须先完整验证全部 CardInstanceId，再开始移动，防止半提交。
+  - DrawCardAction 的手牌上限为 10。满手时停止且未抽牌留在 DrawPile；抽牌堆为空时将
+    Discard 全部移入 Draw 后使用 shuffle RNG 洗牌；仍无牌时返回 NoCardsAvailable。
+
+5. 数值与状态
+
+  - 数量、费用、伤害、格挡、能量获得均不得为负。Hp 和 Block 最低为 0；GainEnergy 不受
+    PlayerInfo.EnergiesLimit 截断，该字段只用于入战能量初始化。
+  - Damage 计算顺序为：Base + Power -> Weak(3/4) -> Vulnerable(3/2) -> Block -> Hp。
+    每一步使用确定性整数运算。结果包含 FinalAmount、Blocked、HpLoss、WasFatal、
+    TargetWasGone；致死敌人立即从 EnemyList 移除。
+  - GainBlock 修复历史负 Block 后再增加，返回 ActualGained。Draw 返回实际 CardInstanceId、
+    重洗次数与停止原因。Energy Action 返回变化后的能量。
+  - ApplyStatus 的 Value 是实际叠加量。Weak、Vulnerable、Power 存于 StatusStacks 并由伤害
+    计算读取；Afterimage 合并为一个监听器，监听器效果值等于当前总层数。
+  - 已经在同一根命令的前序 Action 中死亡/移除的目标允许明确 fizzle；非法玩家类型、牌堆
+    不变量、溢出和配置错误必须 fault。
+
+6. Hook 与胜负
+
+  - AfterCardPlayed 只在 PlayedCardToDiscardAction 实际执行时触发一次，不在命令展开时
+    提前触发。
+  - Damage、Block、Energy、Draw、Discard、Exhaust、Status 均发出对应的最小结果 Hook。
+    Hook 只翻译并排队普通 Action，不直接修改状态。
+  - 每个 Action 后检查战斗结果：任一玩家 Hp <= 0 为失败；EnemyList 为空为胜利。完整批次
+    收尾后将 GameState.IsInBattle 置 false。
+
+7. 选择
+
+  - HandCardChooseAction 保存 ChoiceId、ChoosingPlayer、唯一候选 CardInstanceId 快照和
+    AllowCancel。只有匹配的 ChooseCard/CancelChoice 命令可以恢复或取消当前选择。
+  - Choice command 是独立可记录的命令；客户端不得直接调用 Action 回调或使用本地墙钟
+    决定结果。
+  - 主机超时策略属于网络/房间调度层：该层必须提交确定的 CancelChoice 或 ChooseCard
+    命令。本 Action 不读取帧数和墙钟。
+
+8. 当前明确不支持的内容
+
+  - 多选 Min/Max、随机/全手牌目标枚举，以及弃牌 Reason 仍需上层效果模型后续扩展；当前
+    Discard/Exhaust Action 已支持显式 CardInstanceId[]，非法作者配置在加载期拒绝。
+  - 状态回合持续时间、Remove/Expire、Dexterity/Frail 等格挡 modifier 需要回合系统和新增
+    状态定义；不得在现有 Action 中猜测默认持续时间。
+  - 主机自动产生选择超时命令、动画逐卡事件和完整状态 hash 属于网络/表现/回放任务，不能
+    由 Action 使用本地时间或直接操作 UI 实现。
+
+========================================================================

@@ -1,13 +1,13 @@
-﻿using System.IO;
+using System.IO;
 using combat;
 using enums;
 using gameStates;
 using gameStates.transient;
-using hook;
 using recording;
 using systems;
 using tools.assert;
 using ui.controllers;
+using ui.loading;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -18,6 +18,8 @@ namespace mono
         [SerializeField] private string cardsJsonFileName = "cards.json";
         public StateManager StateManager = new StateManager();
 
+        public CardArtworkCatalog CardArtworkCatalog { get; } = new CardArtworkCatalog();
+
         private BattleUIController _battleUIController;
 
         private void Start()
@@ -27,6 +29,7 @@ namespace mono
             string cardsJson = File.ReadAllText(Path.Combine(Application.streamingAssetsPath, cardsJsonFileName));
             // Todo: Base on room's player number set playerNum
             StateManager.Init(cardsJson, this, 4);
+            CardArtworkCatalog.Init(cardsJson);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             BehaviorRecorderOverlay recorderOverlay = GetComponent<BehaviorRecorderOverlay>();
             if (recorderOverlay == null)
@@ -55,8 +58,7 @@ namespace mono
 
             if (Keyboard.current.qKey.wasPressedThisFrame)
             {
-                BattleApi.EnterBattle(StateManager.BattleState, StateManager.GamePlayerState, StateManager.BattlePlayerStates,
-                    StateManager.GameState.RandomManager);
+                BattleApi.EnterBattle(StateManager);
                 StateManager.GameState.BehaviorRecorder.BattleStarted(StateManager.BattleState.TurnNum);
                 _battleUIController?.OpenBattleUi();
             }
@@ -86,24 +88,6 @@ namespace mono
             {
                 BattlePileApi.DrawCards(StateManager.BattlePlayerStates[0], 3, StateManager.GameState.RandomManager);
                 _battleUIController?.RefreshBattleHud();
-            }
-
-            // Todo: Remove Afterimage test code.
-            if (Keyboard.current.eKey.wasPressedThisFrame)
-            {
-                // Test: apply the Afterimage status via the registry (after each card played, +2 block).
-                BattlePlayerState player = StateManager.BattlePlayerStates[0];
-                if (StatusRegistry.TryGetTemplate(EnumStatusType.Afterimage, out HookListener template))
-                {
-                    player.HookListeners.Add(new HookListener
-                    {
-                        Owner = player.Id,
-                        Hook = template.Hook,
-                        Filter = template.Filter,
-                        Effect = template.Effect
-                    });
-                    Debug.Log($"[Test] Applied Afterimage. Listeners={player.HookListeners.Count}, Block={player.Block}");
-                }
             }
 
         }

@@ -20,6 +20,11 @@ namespace hook
 
             for (int i = 0; i < stateManager.BattlePlayerStates.Length; i++)
             {
+                if (stateManager.BattlePlayerStates[i] == null || stateManager.BattlePlayerStates[i].Hp <= 0)
+                {
+                    continue;
+                }
+
                 // Persistent hooks: one list per item the player owns.
                 PlayerInfo playerInfo = stateManager.GamePlayerState.PlayerInfos[i];
                 for (int itemIndex = 0; itemIndex < playerInfo.Items.Count; itemIndex++)
@@ -31,8 +36,12 @@ namespace hook
                 AllHookListeners.AddRange(stateManager.BattlePlayerStates[i].HookListeners);
 
                 // Hooks carried by the player's card instances (rebuilt every battle).
-                foreach (CardInstance card in stateManager.BattlePlayerStates[i].PileManager.Dictionary.Values)
+                List<CardInstanceId> cardIds = new List<CardInstanceId>(
+                    stateManager.BattlePlayerStates[i].PileManager.Dictionary.Keys);
+                cardIds.Sort();
+                for (int cardIndex = 0; cardIndex < cardIds.Count; cardIndex++)
                 {
+                    CardInstance card = stateManager.BattlePlayerStates[i].PileManager.Dictionary[cardIds[cardIndex]];
                     AllHookListeners.AddRange(card.HookListeners);
                 }
             }

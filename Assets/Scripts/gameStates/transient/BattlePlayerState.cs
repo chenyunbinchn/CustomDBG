@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using cards.instance;
 using combat;
+using enums;
 using hook;
 using player;
 using UnityEngine;
@@ -20,6 +21,7 @@ namespace gameStates.transient
         // Note: Piles will get card from AllCardPile.
         public List<CardInstanceId> DrawPile = new List<CardInstanceId>();
         public List<CardInstanceId> ExhaustedPile = new List<CardInstanceId>();
+        public List<CardInstanceId> PlayPile = new List<CardInstanceId>();
         public List<CardInstanceId> HandCards = new List<CardInstanceId>();
         public List<CardInstanceId> DiscardPile = new List<CardInstanceId>();
 
@@ -28,6 +30,7 @@ namespace gameStates.transient
         // Note: In-battle powers only (e.g. Afterimage). Persistent hooks live on PlayerInfo.Items —
         //       each ItemInstance carries its own. The host decides the lifetime, so no lifetime field.
         public List<HookListener> HookListeners { get; } = new List<HookListener>();
+        public Dictionary<EnumStatusType, int> StatusStacks { get; } = new Dictionary<EnumStatusType, int>();
 
         // Note: Pass-through — Hp is stored ONCE, on PlayerInfo. Writing here writes there.
         public int Hp
@@ -58,6 +61,10 @@ namespace gameStates.transient
             {
                 ExhaustedPile.Clear();
             }
+            if (PlayPile.Count > 0)
+            {
+                PlayPile.Clear();
+            }
             if (HandCards.Count > 0)
             {
                 HandCards.Clear();
@@ -66,11 +73,13 @@ namespace gameStates.transient
             {
                 DiscardPile.Clear();
             }
+            PlayerEnergy = 0;
             Block = 0;
             // Note: last battle's powers die here — BattleApi.EnterBattle calls Reset() on every player,
             //       so no ExitBattle cleanup pass is needed.
             HookListeners.Clear();
-            Debug.Log("[Pile] Reset -> all piles cleared (Draw/Hand/Discard/Exhaust)");
+            StatusStacks.Clear();
+            Debug.Log("[Pile] Reset -> all piles cleared (Draw/Hand/Play/Discard/Exhaust)");
         }
 
     }

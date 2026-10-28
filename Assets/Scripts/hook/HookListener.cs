@@ -20,5 +20,6 @@ namespace hook
 
         // Note: When the host should react (Always / SelfIsSource / SelfIsTarget).
         public EnumHookFilter Filter;
+        public EnumStatusType StatusType;
     }
 }

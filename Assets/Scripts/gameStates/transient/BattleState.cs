@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 using enemy.instance;
-using tools.assert;
+using System;
 
 namespace gameStates.transient
 {
@@ -13,13 +13,58 @@ namespace gameStates.transient
         public List<EnemyInstance> EnemyList = new List<EnemyInstance>();
         public int TurnNum = 0;
         public bool IsPlayerTurn = false; // Todo: Check if monster really need 'turn'
+        public bool IsBattleOver { get; private set; }
+        public bool PlayersWon { get; private set; }
+        public bool IsFaulted { get; private set; }
+        public string FaultReason { get; private set; }
 
         public void Reset(List<EnemyInstance> enemies)
         {
-            MyAssert.Assert(enemies.Count != 0, "enemies.Count == 0");
+            if (enemies == null || enemies.Count == 0)
+                throw new ArgumentException("A battle requires at least one enemy.", nameof(enemies));
             EnemyList = enemies;
-            TurnNum++;
+            TurnNum = 1;
             IsPlayerTurn = true;
+            IsBattleOver = false;
+            PlayersWon = false;
+            IsFaulted = false;
+            FaultReason = null;
+        }
+
+        public void MarkFault(string reason)
+        {
+            IsFaulted = true;
+            IsPlayerTurn = false;
+            FaultReason = reason;
+        }
+
+        public void EvaluateOutcome()
+        {
+            if (IsFaulted || IsBattleOver)
+            {
+                return;
+            }
+
+            if (Players != null)
+            {
+                for (int i = 0; i < Players.Length; i++)
+                {
+                    if (Players[i].Hp <= 0)
+                    {
+                        IsBattleOver = true;
+                        PlayersWon = false;
+                        IsPlayerTurn = false;
+                        return;
+                    }
+                }
+            }
+
+            if (EnemyList.Count == 0)
+            {
+                IsBattleOver = true;
+                PlayersWon = true;
+                IsPlayerTurn = false;
+            }
         }
     }
 }

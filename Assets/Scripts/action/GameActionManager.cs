@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
+using System;
 using recording;
-using tools.assert;
 
 namespace action
 {
@@ -26,7 +26,10 @@ namespace action
         
         public GameAction Pop()
         {
-            MyAssert.Assert(ActionQueue.Count > 0, "No action in action list!");
+            if (ActionQueue.Count == 0)
+            {
+                throw new InvalidOperationException("No action in action list.");
+            }
             GameAction result = ActionQueue[0];
             ActionQueue.RemoveAt(0);
             return result;
@@ -34,8 +37,18 @@ namespace action
 
         public void Add(GameAction action, ulong rootCommandId)
         {
+            if (action == null)
+            {
+                throw new ArgumentNullException(nameof(action));
+            }
             ActionQueue.Add(action);
             _recorder.ActionQueued(action, rootCommandId);
+        }
+
+        public void Reset()
+        {
+            ActionQueue.Clear();
+            _index = 0;
         }
     }
 }

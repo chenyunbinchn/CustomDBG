@@ -10,6 +10,7 @@ using systems;
 using tools.assert;
 using ui.core;
 using ui.intents;
+using ui.loading;
 using ui.viewModels;
 using UnityEngine;
 
@@ -19,6 +20,7 @@ namespace ui.presenters
     public sealed class BattlePresenter : IDisposable
     {
         private readonly StateManager _stateManager;
+        private readonly CardArtworkCatalog _artworkCatalog;
         private readonly int _playerIndex;
         private readonly string _cardPileDialogModalAddress;
         private readonly string _cardDetailModalAddress;
@@ -28,7 +30,7 @@ namespace ui.presenters
         private bool _waitingForCommand;
         private bool _refreshRequested;
 
-        public BattlePresenter(StateManager stateManager, int playerIndex, string cardPileDialogModalAddress,
+        public BattlePresenter(StateManager stateManager, CardArtworkCatalog artworkCatalog, int playerIndex, string cardPileDialogModalAddress,
             string cardDetailModalAddress)
         {
             MyAssert.Assert(stateManager != null, "BattlePresenter requires StateManager.");
@@ -39,6 +41,7 @@ namespace ui.presenters
             MyAssert.Assert(!string.IsNullOrWhiteSpace(cardDetailModalAddress),
                 "BattlePresenter requires a card detail modal address.");
 
+            _artworkCatalog = artworkCatalog ?? throw new ArgumentNullException(nameof(artworkCatalog));
             _stateManager = stateManager;
             _playerIndex = playerIndex;
             _cardPileDialogModalAddress = cardPileDialogModalAddress;
@@ -258,7 +261,7 @@ namespace ui.presenters
             MyAssert.Assert(found, $"Card instance not found while building CardViewModel: {cardId.Value}");
             CardDefinitionManager definitionManager = _stateManager.GameDefinitionState.CardDefinitionManager;
             CardDefinition definition = definitionManager.Get(instance.DefinitionId);
-            definitionManager.TryGetImage(instance.DefinitionId, out Sprite artwork);
+            _artworkCatalog.TryGetImage(instance.DefinitionId, out Sprite artwork);
 
             bool isPlayable = false;
             if (checkPlayable && !_waitingForCommand)

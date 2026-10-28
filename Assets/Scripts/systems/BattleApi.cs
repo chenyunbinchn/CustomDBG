@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using combat;
 using enemy.instance;
 using enums;
+using gameStates;
 using gameStates.persistant;
 using gameStates.transient;
 using random;
@@ -12,6 +13,27 @@ namespace systems
     //       more — all battle input goes through BattleCommandApi (command queue + serial resolution).
     public static class BattleApi
     {
+        public static void EnterBattle(StateManager stateManager)
+        {
+            stateManager.GameState.ActionExecutor.Reset();
+            stateManager.GameState.GameActionManager.Reset();
+            stateManager.GameState.BattleCommandManager.Reset();
+            stateManager.GameState.IsInBattle = true;
+            EnterBattle(
+                stateManager.BattleState,
+                stateManager.GamePlayerState,
+                stateManager.BattlePlayerStates,
+                stateManager.GameState.RandomManager);
+        }
+
+        public static void ExitBattle(StateManager stateManager)
+        {
+            stateManager.GameState.ActionExecutor.Reset();
+            stateManager.GameState.GameActionManager.Reset();
+            stateManager.GameState.BattleCommandManager.Reset();
+            stateManager.GameState.IsInBattle = false;
+        }
+
         public static void EnterBattle(BattleState battleState, GamePlayerState gamePlayerState, BattlePlayerState[] battlePlayerStates,
             RandomManager randomManager)
         {

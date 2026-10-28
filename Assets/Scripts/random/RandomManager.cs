@@ -10,12 +10,14 @@ namespace random
         private System.Random _mapGenRandom;
         private System.Random _itemRandom;
         private System.Random _lootDropCardRandom;
+        private System.Random _combatRandom;
 
         private int _shuffleCounter;
         private int _monsterAiCounter;
         private int _mapGenCounter;
         private int _itemCounter;
         private int _lootDropCardCounter;
+        private int _combatCounter;
 
         public void Init(SeedManager seedManager)
         {
@@ -24,12 +26,14 @@ namespace random
             _mapGenRandom = new System.Random((int)seedManager.MapGenSeed.Value);
             _itemRandom = new System.Random((int)seedManager.ItemSeed.Value);
             _lootDropCardRandom = new System.Random((int)seedManager.LootDropCardSeed.Value);
+            _combatRandom = new System.Random((int)seedManager.CombatSeed.Value);
 
             _shuffleCounter = 0;
             _monsterAiCounter = 0;
             _mapGenCounter = 0;
             _itemCounter = 0;
             _lootDropCardCounter = 0;
+            _combatCounter = 0;
         }
 
         public int ShuffleNextInt(int maxExclusive)
@@ -67,6 +71,16 @@ namespace random
             return _lootDropCardRandom.Next(maxExclusive);
         }
 
+        public int CombatNextInt(int maxExclusive)
+        {
+            if (maxExclusive <= 0)
+            {
+                throw new System.ArgumentOutOfRangeException(nameof(maxExclusive));
+            }
+            _combatCounter++;
+            return _combatRandom.Next(maxExclusive);
+        }
+
         public int GetShuffleCounter()
         {
             return _shuffleCounter;
@@ -90,6 +104,11 @@ namespace random
         public int GetLootDropCardCounter()
         {
             return _lootDropCardCounter;
+        }
+
+        public int GetCombatCounter()
+        {
+            return _combatCounter;
         }
     }
 }

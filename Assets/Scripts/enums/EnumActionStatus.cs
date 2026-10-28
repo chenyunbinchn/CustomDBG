@@ -8,6 +8,7 @@
         GatheringPlayerChoice,
         ReadyToResumeExecuting,
         Finished,
-        Canceled
+        Canceled,
+        Faulted
     }
 }

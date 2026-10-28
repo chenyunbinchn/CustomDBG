@@ -1,7 +1,6 @@
 using action;
 using combat;
 using enums;
-using gameStates;
 using recording;
 using systems;
 using tools.assert;
@@ -16,12 +15,13 @@ namespace hook
     //       reactions from recursing. See 《260718-rule-hook-system》 §4/§6.
     public static class HookSystem
     {
-        public static void Fire(in Hook hook, HookManager hookManager, StateManager stateManager,
-            GameActionManager actionManager, ulong rootCommandId)
+        public static void Fire(in Hook hook, BattleActionContext context)
         {
-            BehaviorRecorder recorder = stateManager.GameState.BehaviorRecorder;
+            HookManager hookManager = context.StateManager.GameState.HookManager;
+            BehaviorRecorder recorder = context.StateManager.GameState.BehaviorRecorder;
+            ulong rootCommandId = context.RootCommandId;
             recorder.HookFired(hook, rootCommandId);
-            hookManager.IterateHookListeners(stateManager);
+            hookManager.IterateHookListeners(context.StateManager);
 
             for (int i = 0; i < hookManager.AllHookListeners.Count; i++)
             {
@@ -39,7 +39,7 @@ namespace hook
 
                 // Note: the listener's Owner is the effect's source, so Self/User resolve to whoever the
                 //       listener acts for — not to whatever host object physically carries it.
-                EffectApi.Translate(listener.Effect, listener.Owner, hook.Target, actionManager, rootCommandId);
+                EffectApi.Translate(listener.Effect, listener.Owner, hook.Target, null, context);
             }
         }
 

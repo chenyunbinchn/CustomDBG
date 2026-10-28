@@ -1,0 +1,349 @@
+========================================================================
+  ResolveEffectAction 可行实现分析报告
+  日期：2026-09-07
+  状态：proposal
+========================================================================
+
+1. 背景与结论
+------------------------------------------------------------------------
+
+当前卡牌效果模型只能把一张牌描述为固定 energyCost，加上顺序排列的
+Effect(effectType, targetType, statusType, value)。BattleCommandApi 在出牌命令展开阶段
+立即调用 EffectApi.Translate，把 Effect 转成 GameAction。
+
+这个方式适合固定伤害、固定格挡和固定抽牌，但无法无损表达：
+
+  - 读取前一个 Action 的实际结果；
+  - 在执行时判断条件；
+  - 根据当前战斗状态计算动态数值；
+  - 根据击杀、抽牌或选择结果决定后续行为；
+  - 循环、玩家选择后继续、跨回合延迟效果。
+
+建议新增 ResolveEffectAction，作为“运行时效果解释边界”。它不直接修改战斗状态，
+而是在轮到它执行时读取确定的战斗状态和前序结果，解析一个 EffectNode，然后把
+DamageAction、DrawCardAction 等原子 Action 插入当前队列的下一位置。
+
+此前分析预计完整支持 91 张静默猎手基础卡需要 9 个卡牌相关 Action；如果回合生命周期
+也 Action 化，则合计 11 个。ResolveEffectAction 是其中唯一负责条件、动态值、循环和
+控制流的 Action，其余新增 Action 仍只负责原子状态修改。
+
+
+2. 职责边界
+------------------------------------------------------------------------
+
+ResolveEffectAction 应负责：
+
+  - 解析 Sequence、If、Repeat、ForEach 等控制流节点；
+  - 在执行时计算动态数值；
+  - 读取前序 Action 或玩家选择的结果；
+  - 把抽象目标解析成稳定、有序的具体目标；
+  - 生成后续原子 GameAction；
+  - 记录条件结果、解析值、选择分支和展开数量。
+
+ResolveEffectAction 不应负责：
+
+  - 直接修改 Hp、Block、能量、牌堆、卡牌、状态或奖励；
+  - 直接操作 UI；
+  - 根据卡牌 idName/sourceName 写专用分支。
+
+实际状态修改继续交给 DamageAction、GainBlockAction、DrawCardAction、ApplyStatusAction
+以及未来的 CreateCardAction、ModifyCardAction 等原子 Action。这样每项战斗事实仍有
+独立 ActionId、状态、结果和 recording 记录。
+
+
+3. 建议的数据结构
+------------------------------------------------------------------------
+
+ResolveEffectAction 概念结构：
+
+  public sealed class ResolveEffectAction : GameAction
+  {
+      public EffectNode Node { get; }
+      public EffectScopeId ScopeId { get; }
+
+      public override IEnumerator Execute(BattleActionContext context)
+      {
+          EffectExecutionScope scope = context.EffectScopes.Resolve(ScopeId);
+          IReadOnlyList<GameAction> children =
+              context.EffectResolver.Resolve(Node, scope, context);
+          context.ActionManager.InsertNext(children, context.RootCommandId);
+          yield break;
+      }
+  }
+
+Action 只保存可序列化标识和效果节点数据，不保存 UI 对象、委托、闭包或其他 Action
+的对象引用。
+
+EffectNode 建议设计成显式 nodeType 的 tagged union DTO，而不是任意代码或表达式字符串：
+
+  Sequence       顺序解析多个子节点。
+  Primitive      生成一个或多个原子 Action。
+  If             仅展开 then 或 else 分支。
+  Repeat         按固定值或动态值重复子节点。
+  WhileResult    根据前序结果决定是否继续循环。
+  ForEachTarget  对稳定排序后的目标集合逐个解析。
+  ChooseCards    生成选择 Action，并把结果写入结果槽。
+  Schedule       生成 ScheduleEffectAction，安排到未来时点。
+
+Primitive 最终仍通过 ActionFactory/EffectApi 创建原子 Action，ResolveEffectAction 不应
+复制所有原子 Action 的构造逻辑。
+
+动态值建议使用受限制的 ValueExpression 数据：Constant、XSpent、StatusAmount、
+HandCardCount、CardsPlayedThisTurn、AttacksPlayedThisTurn、SkillsPlayedThisTurn、
+CardsDiscardedThisTurn、CardsDrawnThisCombat、PreviousActionResult。
+
+表达式只能读取确定的 BattleState、EffectExecutionScope 和 ActionResultStore。解析完成后，
+生成的原子 Action 必须携带已确定的整数，不能在原子 Action 执行时重复计算。
+
+
+4. 队列插入语义
+------------------------------------------------------------------------
+
+当前 GameActionManager.Add 只会追加到队尾。若队列为：
+
+  ResolveEffectAction
+  PlayedCardToDiscardAction
+
+而 Resolver 使用 Add 添加 DamageAction，结果会变成先弃牌、后伤害。因此必须新增：
+
+  InsertNext(IReadOnlyList<GameAction> actions, ulong rootCommandId)
+
+它把新 Action 插到原队列剩余内容之前，并保持定义顺序：
+
+  DamageAction
+  ApplyStatusAction
+  PlayedCardToDiscardAction
+
+InsertNext 必须像 Add 一样记录每个 ActionQueued。展开 Action 仍计入
+ActionExecutor.MaxActionsPerCommand，防止错误数据导致无限循环。
+
+
+5. 前序结果传递
+------------------------------------------------------------------------
+
+不能让后续 Resolver 直接引用已经执行过的 GameAction 对象。对象引用不适合网络同步、
+存档、重建和行为日志验证，也会让效果执行依赖内存对象生命周期。
+
+建议引入一次卡牌效果执行作用域：
+
+  EffectExecutionScope
+    ScopeId
+    Source
+    SourceCard
+    SelectedTarget
+    XSpent
+    ResultSlots
+
+其中 ResultSlots 是 ResultSlotId -> ActionResult（纯值 DTO）。生成原子 Action 时可以指定
+输出槽：
+
+  DrawCardAction   -> drawResult
+  DamageAction     -> firstHit
+  ChooseCardAction -> discardSelection
+
+ActionExecutor 在 Action 成功结束后，将 IActionResultProvider 暴露的纯值结果写入当前
+EffectExecutionScope。后续 ResolveEffectAction 只通过 ResultSlotId 读取结果。
+
+建议复用现有结果内容：
+
+  DrawCardAction
+    实际抽到的 CardInstanceId、抽牌数量、洗牌次数、停止原因。
+
+  DamageAction
+    FinalAmount、Blocked、HpLoss、WasFatal、TargetWasGone。
+
+  HandCardChooseAction
+    选择的 CardInstanceId 列表、是否取消。
+
+  DiscardHandCardAction
+    实际弃牌数量和实际 CardInstanceId 列表。
+
+ResultSlot 在同一 Scope 内必须唯一；读取不存在、类型不符或尚未完成的结果应使根命令
+确定性 fault，不能使用默认值继续。
+
+
+6. 示例：逃脱计划
+------------------------------------------------------------------------
+
+行为：抽 1 张牌；若抽到的是技能牌，获得 3 点格挡。
+
+概念效果数据：
+
+  Sequence
+    Primitive DrawCards(value=1, resultSlot=drawResult)
+    If DrawnCardTypeIs(resultSlot=drawResult, cardType=Skill)
+      Primitive GainBlock(value=3)
+
+执行过程：
+
+  1. Resolve Sequence 插入 DrawCardAction，然后插入 Resolve If。
+  2. DrawCardAction 把实际抽到的 CardInstanceId 写入 drawResult。
+  3. Resolve If 读取 drawResult，并查询该 CardInstance 的 CardType。
+  4. 条件成立时插入 GainBlockAction；否则不展开子 Action。
+
+判断发生在抽牌 Action 结束后，因此能够正确处理洗牌、空牌堆、满手和实际抽牌结果。
+
+
+7. 示例：回响斩
+------------------------------------------------------------------------
+
+行为：对所有敌人造成 10 点伤害；每击杀一个敌人就重复此效果。
+
+出牌时不能预先计算重复次数，因为敌人是否死亡只有 DamageAction 执行后才确定。
+
+建议流程：
+
+  Resolve WhileResult
+    插入当前存活敌人的 DamageAction，每个 Action 写入本轮结果槽；
+    再插入 Resolve LoopContinuation。
+
+  DamageAction × N
+    分别执行并记录 WasFatal。
+
+  Resolve LoopContinuation
+    统计本轮击杀数量；
+    若为 0，则结束；
+    若大于 0，则按规则再次插入循环节点。
+
+循环节点必须保存 iteration，并有数据级最大迭代约束。ActionExecutor 的 1024 Action
+上限仅作为最后保护，不能代替正常的循环终止规则。
+
+
+8. 示例：杂技与玩家选择
+------------------------------------------------------------------------
+
+行为：抽 3 张牌，然后弃 1 张牌。
+
+建议流程：
+
+  DrawCardAction
+  HandCardChooseAction(resultSlot=discardSelection)
+  ResolveEffectAction
+    读取 discardSelection
+    创建 DiscardHandCardAction
+
+现有 HandCardChooseAction 可以暂停 ActionExecutor 等待命令，但需要扩展：
+
+  - 支持 minCount/maxCount 和多选；
+  - 支持指定候选牌堆或候选快照；
+  - 把选择结果写入 ResultSlot；
+  - 明确取消后是终止整张牌、跳过分支还是继续执行。
+
+选择必须继续通过 BattleCommandApi 和 recording 进入模拟，不能由 UI 回调直接修改
+EffectExecutionScope。
+
+
+9. 确定性与 recording
+------------------------------------------------------------------------
+
+ResolveEffectAction 必须满足：
+
+  - 所有随机选择只使用 BattleActionContext.RandomManager 的 combat RNG；
+  - 所有实体集合使用稳定顺序，例如按 ActionEntityId 排序；
+  - 条件和表达式在 Resolver 执行时只计算一次；
+  - 已解析的目标和数值写入生成的原子 Action；
+  - 不读取 Unity 帧时间、本地墙钟、UI 状态或不稳定集合顺序；
+  - 不执行 JSON 提供的方法名、脚本或反射；
+  - 所有循环计入 MaxActionsPerCommand；
+  - 无效节点、缺失结果和算术溢出必须确定性 fault。
+
+ResolveEffectAction.ResultSummary 至少记录：nodeType、scopeId、conditionResult、
+resolvedValue、selectedBranch、iteration 和 expandedActionCount 中适用的字段。
+
+示例：
+
+  node=If scope=14 condition=DrawnCardTypeIs(Skill)
+  result=true branch=then expanded=1
+
+随机目标最终由生成出的具体原子 Action 记录；回放和问题诊断不应只看到“选择了一个
+随机敌人”，而应能看到实际 ActionEntityId。
+
+
+10. 避免形成 God Action
+------------------------------------------------------------------------
+
+ResolveEffectAction 内部不应堆积一个同时处理所有节点、状态和卡牌的巨大 switch。
+建议拆成以下纯逻辑服务：
+
+  EffectNodeResolver       解析控制流节点并返回展开计划。
+  ValueExpressionResolver  解析动态整数。
+  ConditionResolver        解析布尔条件。
+  TargetSelectorResolver   解析实体或卡牌目标，并保证顺序稳定。
+  PrimitiveActionFactory   把已经解析的 Primitive 创建为具体 GameAction。
+
+ResolveEffectAction 只是这些服务进入 Action 队列的确定性边界。
+
+
+11. 对现有系统的必要改动
+------------------------------------------------------------------------
+
+实现 ResolveEffectAction 至少会涉及：
+
+  GameActionManager
+    新增 InsertNext/InsertNextRange，并保留 recording 和顺序语义。
+
+  BattleActionContext
+    提供 EffectScopeStore、EffectResolver 或访问相应服务的入口。
+
+  ActionExecutor
+    成功完成 Action 后，把 IActionResultProvider 的结果写入对应 ResultSlot。
+
+  BattleCommandApi
+    出牌时不再把复杂效果全部提前展开，而是创建根 ResolveEffectAction。
+
+  Effect 数据模型
+    从单层 Effect[] 扩展为 EffectNode/EffectProgram，并保留简单 Effect 的兼容入口。
+
+  CardDefinitionManager
+    对节点类型、表达式、结果槽、循环限制、目标组合和状态引用做加载期校验。
+
+  BehaviorRecorder
+    记录 Resolver 的解析结果和展开的子 Action。
+
+这些属于后续系统重构；本报告不实施任何运行时代码或 JSON schema 改动。
+
+
+12. 推荐实施顺序
+------------------------------------------------------------------------
+
+阶段一：执行框架
+
+  1. ResultSlotId、EffectScopeId 和 EffectExecutionScope。
+  2. IActionResultProvider 与 ActionExecutor 结果落槽。
+  3. GameActionManager.InsertNext。
+  4. ResolveEffectAction，仅支持 Sequence 和固定 Primitive。
+
+阶段二：证明前序结果链
+
+  5. If 和 PreviousActionResult。
+  6. 用“逃脱计划”完成 Draw -> If -> GainBlock 集成测试。
+  7. 扩展 HandCardChooseAction，用“杂技”完成选择后继续执行测试。
+
+阶段三：动态与循环
+
+  8. ValueExpression、战斗计数器和稳定目标选择。
+  9. Repeat/WhileResult。
+  10. 用“终结技”和“回响斩”验证动态次数与击杀后循环。
+
+阶段四：延迟效果
+
+  11. ScheduleEffectAction。
+  12. StartTurnAction/EndTurnAction。
+  13. 用“闪避翻滚”“捕食者”“梦魇”验证跨回合上下文保存。
+
+
+13. 验收标准
+------------------------------------------------------------------------
+
+  - 简单卡仍按 HandToPlay -> Cost -> Effects -> Finish 的顺序执行；
+  - Resolver 展开的 Action 必须位于 PlayedCardToDiscardAction 之前；
+  - 前序结果只能通过纯值 ResultSlot 读取；
+  - 相同命令、初始状态和 RNG 状态产生相同 Action 顺序与结果；
+  - recording 能重建每次条件判断和展开决定；
+  - 玩家选择经过 BattleCommandApi，等待期间不会启动其他根命令；
+  - 条件、循环、动态值的非法数据在加载期被拒绝；
+  - 运行期缺失结果、错误类型和溢出进入 BattleFaulted；
+  - 任一根命令展开超过 1024 个 Action 时确定性中断；
+  - Resolver 不包含按具体卡牌名称分支的逻辑。
+
+========================================================================

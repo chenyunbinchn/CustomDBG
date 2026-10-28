@@ -15,6 +15,7 @@ namespace combat
         public readonly ActionEntityId Player;   // who issued the command
         public readonly CardInstanceId Card;     // PlayCard: which card (never a hand index)
         public readonly ActionEntityId Target;   // PlayCard: picked target (default = untargeted)
+        public readonly ulong ChoiceId;          // ChooseCard/CancelChoice: pending choice identity
 
         public BattleCommand(EnumCommandType type, ActionEntityId player, CardInstanceId card, ActionEntityId target)
         {
@@ -23,6 +24,17 @@ namespace combat
             Player = player;
             Card = card;
             Target = target;
+            ChoiceId = 0;
+        }
+
+        public static BattleCommand ChooseCard(ulong choiceId, ActionEntityId player, CardInstanceId card)
+        {
+            return new BattleCommand(0, EnumCommandType.ChooseCard, player, card, default, choiceId);
+        }
+
+        public static BattleCommand CancelChoice(ulong choiceId, ActionEntityId player)
+        {
+            return new BattleCommand(0, EnumCommandType.CancelChoice, player, default, default, choiceId);
         }
 
         private BattleCommand(
@@ -30,18 +42,20 @@ namespace combat
             EnumCommandType type,
             ActionEntityId player,
             CardInstanceId card,
-            ActionEntityId target)
+            ActionEntityId target,
+            ulong choiceId)
         {
             CommandId = commandId;
             Type = type;
             Player = player;
             Card = card;
             Target = target;
+            ChoiceId = choiceId;
         }
 
         internal BattleCommand WithCommandId(ulong commandId)
         {
-            return new BattleCommand(commandId, Type, Player, Card, Target);
+            return new BattleCommand(commandId, Type, Player, Card, Target, ChoiceId);
         }
     }
 }

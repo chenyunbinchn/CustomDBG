@@ -10,6 +10,7 @@ namespace random
         public Seed MapGenSeed;
         public Seed ItemSeed;
         public Seed LootDropCardSeed;
+        public Seed CombatSeed;
 
         public void Init(Seed mainSeed)
         {
@@ -19,6 +20,7 @@ namespace random
             MapGenSeed = SeedHelper.DeriveSeed(mainSeed, "map_gen");
             ItemSeed = SeedHelper.DeriveSeed(mainSeed, "item");
             LootDropCardSeed = SeedHelper.DeriveSeed(mainSeed, "loot_drop_card");
+            CombatSeed = SeedHelper.DeriveSeed(mainSeed, "combat");
         }
 
         public void Init(uint mainSeedValue)

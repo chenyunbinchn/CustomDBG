@@ -10,6 +10,7 @@ namespace enemy.instance
         public int Hp { get; set; }
         public int Block { get; set; }
         public List<HookListener> HookListeners { get; } = new List<HookListener>();
+        public Dictionary<EnumStatusType, int> StatusStacks { get; } = new Dictionary<EnumStatusType, int>();
 
         public ActionEntityId Id { get; set; }
     }

@@ -1,0 +1,22 @@
+任务：分离卡牌规则与美术资源
+Status: done
+
+修订记录：
+2026-10-28 完成 CardDefinitionManager 与客户端 CardArtworkCatalog 分离及 C# 编译检查。
+
+实现：
+- Assets/Scripts/cards/definition/CardDefinitionManager.cs 只管理规则字典、JSON 规则解析与规则校验；移除 Sprite、Resources.Load、GetImage/TryGetImage 和直接 Unity 依赖。查不到规则时显式抛 KeyNotFoundException。
+- Assets/Scripts/ui/loading/CardArtworkCatalog.cs 为客户端维护 CardDefinitionId 到 Sprite 的映射，只解析现有 JSON 的 idName/imageName；空 imageName 不加载图片，沿用空图显示。
+- Assets/Scripts/mono/UnityBoostrap.cs 在规则初始化后单独初始化美术目录。
+- Assets/Scripts/ui/controllers/BattleUIController.cs 将美术目录注入 BattlePresenter；Presenter 从规则管理器读规则，从美术目录读 Sprite。
+- CardDefinitionAuthoring.imageName 保留作为既有 JSON 兼容字段，规则加载不消费该字段。没有修改 JSON、场景或预制体。
+
+验证：
+- 按现有 Assembly-CSharp.csproj 引用和编译符号，使用本机 Roslyn 编译 116 个源码（显式包含新文件），退出码 0。
+- 警告包括 Newtonsoft/netstandard 版本统一，以及 Unity 序列化/JSON 反射赋值字段的 CS0649；未出现编译错误。
+- 搜索确认图片查询转向 CardArtworkCatalog，唯一 BattlePresenter 构造入口同步更新。
+- 没有运行 Unity 场景或 Play Mode，不宣称已完成运行时图片加载验证。
+
+边界：
+- 本次仅拆卡牌管理器的直接 Unity 资源依赖；CardDefinitionId 仍引用现有 MyAssert，整个规则依赖图尚未完成纯 .NET 抽离。
+- 启动时规则与美术各自解析现有同一 JSON，避免规则初始化承担客户端资源职责；未引入共享解析流水线或 Addressables 改造。

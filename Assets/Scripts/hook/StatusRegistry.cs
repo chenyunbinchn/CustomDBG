@@ -9,8 +9,8 @@ namespace hook
     //       is data (EnumStatusType, which is allowed to grow with content — it's a key, not a switch
     //       branch). Adding a new hook-type status = one entry here + one EnumStatusType value, and
     //       EnumEffectType is never touched.
-    //       Todo: move to a ScriptableObject; support amount/layer-driven Effect values;
-    //             modifier-type statuses (Weak/Vulnerable/Power) belong to the modifier chain, not here.
+    //       Todo: move to a ScriptableObject. Modifier-type statuses
+    //             (Weak/Vulnerable/Power) belong to the modifier chain, not here.
     public static class StatusRegistry
     {
         private static readonly Dictionary<EnumStatusType, HookListener> _templates = new Dictionary<EnumStatusType, HookListener>
@@ -23,7 +23,8 @@ namespace hook
                 {
                     Hook = EnumHookType.AfterCardPlayed,
                     Filter = EnumHookFilter.SelfIsSource,
-                    Effect = new Effect(EnumEffectType.GainBlock, EnumTargetType.Self, EnumStatusType.None, 2)
+                    StatusType = EnumStatusType.Afterimage,
+                    Effect = new Effect(EnumEffectType.GainBlock, EnumTargetType.Self, EnumStatusType.None, 0)
                 }
             }
         };
