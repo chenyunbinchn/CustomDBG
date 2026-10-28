@@ -1,6 +1,6 @@
 using System.Collections;
 using enums;
-using gameStates.transient;
+using systems;
 using UnityEngine;
 
 namespace action.gameEffectActions
@@ -18,9 +18,10 @@ namespace action.gameEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
+        public override IEnumerator Execute(BattleActionContext context)
         {
-            Debug.Log($"[DrawCardAction] Value = {Value}");
+            BattlePileApi.DrawCards(context.PlayerState, Value, context.RandomManager);
+            Debug.Log($"[DrawCardAction] drew up to {Value} card(s)");
             yield return null;
         }
     }

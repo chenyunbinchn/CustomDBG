@@ -1,0 +1,16 @@
+Task: Fix card UI display and add card detail viewing
+Date: 2026-09-03
+
+Status
+
+- Complete: diagnose Chinese text as a missing TMP glyph/fallback problem.
+- Pending Unity asset assembly: import an authorized CJK font, generate a TMP font asset, and assign
+  it to every card and card-detail TMP_Text component.
+- Complete: correct CardPileListView Content wiring and grid layout.
+- Complete: enlarge CardView while hovered.
+- Complete: distinguish click from drag and forward a card-detail UI intent.
+- Complete: connect hand and pile detail requests to UIManager.PushModal.
+- Complete: add CardDetailModal component code.
+- Pending Unity asset assembly: create the CardDetailModal prefab, bind its five serialized fields,
+  and register Addressable address UI/CardDetailModal.
+- Deferred by request: CardView object pooling and incremental reconciliation.

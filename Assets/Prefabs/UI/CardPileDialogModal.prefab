@@ -334,8 +334,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: What Pile Is This Dialog?
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: dfdbd79d5090f4240b8ee13ede201fd7, type: 2}
+  m_sharedMaterial: {fileID: 4893843966801604678, guid: dfdbd79d5090f4240b8ee13ede201fd7, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -359,7 +359,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 44.1
+  m_fontSize: 37.5
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -471,8 +471,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: CloseButton
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: dfdbd79d5090f4240b8ee13ede201fd7, type: 2}
+  m_sharedMaterial: {fileID: 4893843966801604678, guid: dfdbd79d5090f4240b8ee13ede201fd7, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
@@ -502,7 +502,7 @@ MonoBehaviour:
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
   m_fontSizeMax: 72
-  m_fontStyle: 0
+  m_fontStyle: 1
   m_HorizontalAlignment: 2
   m_VerticalAlignment: 512
   m_textAlignment: 65535
@@ -980,7 +980,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.ScrollRect
   m_Content: {fileID: 9127767621525277868}
-  m_Horizontal: 1
+  m_Horizontal: 0
   m_Vertical: 1
   m_MovementType: 2
   m_Elasticity: 0.1
@@ -1010,8 +1010,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ui.CardPileListView
   scrollRect: {fileID: 2377369726532892285}
-  contentRoot: {fileID: 6082396667777986515}
+  contentRoot: {fileID: 9127767621525277868}
   cardPrefab: {fileID: 2851031200799235775, guid: 378946bbc38126a4a91eec56b44395fa, type: 3}
+  columnCount: 4
+  cellSize: {x: 400, y: 600}
+  spacing: {x: 20, y: 20}
 --- !u!1 &8497043919463823328
 GameObject:
   m_ObjectHideFlags: 0
@@ -1050,7 +1053,7 @@ RectTransform:
   m_AnchorMax: {x: 0, y: 0}
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
-  m_Pivot: {x: 0, y: 1}
+  m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &2399109325853678918
 CanvasRenderer:
   m_ObjectHideFlags: 0

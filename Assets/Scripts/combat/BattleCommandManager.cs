@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using recording;
 using tools.assert;
 
 namespace combat
@@ -10,10 +11,21 @@ namespace combat
     public class BattleCommandManager
     {
         public List<BattleCommand> Pending = new List<BattleCommand>();
+        private readonly BehaviorRecorder _recorder;
+        private ulong _nextCommandId = 1;
+
+        public BattleCommandManager(BehaviorRecorder recorder)
+        {
+            _recorder = recorder;
+        }
 
         public void Enqueue(BattleCommand command)
         {
-            Pending.Add(command);
+            // Note: Command identity belongs to the authoritative queue, not to the observer.
+            //       It is allocated even when every recording sink has failed.
+            BattleCommand queuedCommand = command.WithCommandId(_nextCommandId++);
+            Pending.Add(queuedCommand);
+            _recorder.CommandSubmitted(queuedCommand);
         }
 
         public bool HasPending()

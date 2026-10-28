@@ -1,0 +1,300 @@
+========================================================================
+  任务：补全并加固全部 GameAction
+  日期：2026-09-03
+  状态：pending
+========================================================================
+
+来源报告：
+  Documentation/reports/260903-report-game-action-gap-audit.txt
+
+目标：
+  使全部 10 个现有 GameAction 都具有明确、可验证、可回放、可用于多人串行模拟的业务
+  语义；补齐目标、牌堆、状态、选择、异常和胜负链路。UI 只提交命令和播放结果，不直接
+  修改战斗状态。
+
+------------------------------------------------------------------------
+1. 先固化的实现原则
+------------------------------------------------------------------------
+
+1.1 Context 与 Action 载荷分工
+
+  - BattleActionContext 只提供本次执行可访问的世界状态和服务，例如 BattleState、
+    RandomManager、GameActionManager/BattleRuleSystem。
+  - Action 自己携带业务事实：SourceActorId、TargetActorId、可选 SourceCardId、
+    TargetCardIds、Value。
+  - 禁止用 context.PlayerState 猜测通用 Effect 的目标。context.PlayerState 只可作为
+    命令发起者的便捷引用，并最终应能由 Player Id 校验得到。
+
+1.2 Id 与目标
+
+  - 实体使用 ActionEntityId；卡牌使用 CardInstanceId。
+  - 禁止把手牌下标写进 Command 或 Action。
+  - 战斗实体目标与卡牌目标分开建模；不要继续用同一个 EnumTargetType 同时表达
+    SelectedEnemy 和 SelectedHandCard。
+  - TargetResolver 是目标合法性和展开的唯一入口；不支持的组合在数据加载期失败，
+    禁止 fallback 到 picked。
+
+1.3 状态修改与失败语义
+
+  - 每一次原子状态修改都由 Action 执行。
+  - “命令出队时目标就非法”必须拒绝命令；“命令合法但前序 Action 已使目标死亡”可以
+    返回明确的 Fizzled/TargetGone 结果，不能只打一条模糊日志。
+  - 配置错误在加载期失败；运行时战斗状态损坏进入 BattleFaulted，停止接受普通命令，
+    不允许继续产生不同步状态。
+
+1.4 建议的基础规则
+
+  - Value 为数量/伤害/格挡/能量获得时必须 >= 0；减少类语义使用独立 Action。
+  - Hp 最低为 0；Block 最低为 0。
+  - 手牌上限默认 10。抽牌遇到满手时停止，本次未抽的牌继续留在抽牌堆；先写入规范再
+    实施，如项目决定其他规则只改规范与测试，不在 Action 内散落特例。
+  - GainEnergy 不受“每回合恢复值”上限截断；PlayerInfo.EnergiesLimit 作为回合开始恢复
+    值，不当作硬容量。若设计另有决定，先更新规范。
+  - 选择超时由主机产生并广播一个确定的 ChoiceCommand 结果；客户端不得按各自墙钟
+    独立自动选择。
+
+实施前将最终规则写入：
+  Documentation/documentations/260903-game-action-execution-standard.txt
+
+------------------------------------------------------------------------
+2. 工作包 A：P0 执行安全与数据验证
+------------------------------------------------------------------------
+
+[ ] A-01 为 CardDefinitionManager 增加 EffectValidator：
+         - EffectType 不得为 None；
+         - CostEnergy 不允许作为作者配置 Effect；
+         - Value/StatusType/TargetType 组合必须被对应 Action 支持；
+         - 不支持的多目标、卡牌目标在实现前直接拒绝加载。
+
+[ ] A-02 GameActionManager.Add 拒绝 null；Release 构建也必须执行该校验，不能依赖
+         Conditional MyAssert。
+
+[ ] A-03 加固 ActionExecutor：
+         - 增加 CurrentAction；
+         - try/finally 保证 IsRunning 必定复位；
+         - 成功、Canceled、Faulted 终态由状态机明确控制，不无条件覆盖；
+         - 异常时记录 ActionId/类型/命令 Id，标记 BattleFaulted，停止普通 Pump；
+         - 定义清空剩余批次还是保留故障快照，推荐保留快照供诊断、退出战斗时统一清理。
+
+[ ] A-04 给单条命令增加确定性的 MaxExpandedActions 上限，阻断 Hook 反应死循环。计数
+         属于命令结算链，不使用帧数或墙钟。
+
+[ ] A-05 定义 EnterBattle/ExitBattle/故障退出的清理：ActionQueue、Pending commands、
+         CurrentAction、IsRunning、ActionId、选择请求和 BattleFaulted 不得跨战斗残留。
+
+[ ] A-06 为 PlayCard 增加 InvalidTarget/TargetDead/UnsupportedTargetType 等结果；
+         CanPlayCard 在命令出队时验证每个 Effect 所需目标。
+
+验收：
+  - Release 条件下非法 Effect 不会把 null Action 放入队列。
+  - 人工抛错的 Action 不会让 IsRunning 永久为 true；战斗进入可诊断的 Faulted 状态。
+  - 循环 Hook 在固定 Action 数处确定性终止。
+  - 连续两场战斗不存在上一场队列、选择或故障状态。
+
+------------------------------------------------------------------------
+3. 工作包 B：卡牌生命周期、消耗、弃牌与选择
+------------------------------------------------------------------------
+
+[ ] B-01 在 BattlePlayerState 增加 PlayPile；BattlePileApi 增加按 CardInstanceId 的原子
+         MoveCard(from, to, cardId) 和带来源校验的语义封装。
+
+[ ] B-02 新增 HandCardToPlayAction，成为出牌批次第一条状态修改：
+         Hand -> Play。CostEnergy、卡牌 Effects、最终去向都在它之后。
+
+[ ] B-03 改造 PlayedCardToDiscardAction：
+         - 显式携带 PlayerId + CardInstanceId；
+         - 从 PlayPile 移到 DiscardPile；
+         - 若卡已被合法 Exhaust，返回 AlreadyMovedByTerminalEffect；
+         - 其他缺失视为不变量错误，不能与合法消耗共用同一“skip”日志。
+
+[ ] B-04 重做 ExhaustCardAction：
+         - 删除 CardIndexArray；改为 PlayerId + CardInstanceId[]；
+         - Exhaust Self 使用 SourceCardId，把当前打出的牌从 PlayPile 移到 ExhaustedPile；
+         - 选中手牌消耗从 HandCards 移到 ExhaustedPile；
+         - 每张牌产生明确结果并触发 Exhaust Hook；
+         - 数量不足、重复 Id、卡不在允许来源牌堆都有确定规则。
+
+[ ] B-05 重做 DiscardHandCardAction：
+         - 增加构造函数并保证 Id/初始 ActionStatus 有效；
+         - 显式携带 PlayerId + CardInstanceId[]；
+         - 从 HandCards 移到 DiscardPile；
+         - “指定弃牌”“随机弃牌”“回合结束弃手牌”使用不同的上层命令/Action 类型或
+           明确的 Reason 枚举，以便 Hook 区分；
+         - 随机弃牌只使用 BattleActionContext.RandomManager 的专用确定性域。
+
+[ ] B-06 用命令化选择替换 HandCardChooseAction 的本地回调模型：
+         - ChoiceRequest 包含 ChoiceId、ChoosingPlayer、候选 CardInstanceId 快照、
+           Min/MaxCount、允许取消、Reason；
+         - ActionExecutor.CurrentAction 暴露当前挂起请求；
+         - 本地 UI 和远端网络统一提交 ChoiceCommand{ChoiceId, PlayerId, CardIds}；
+         - BattleCommandApi 在稳定点例外通道中把匹配命令交给挂起 Action；
+         - 校验选择者、ChoiceId、数量、候选集合和重复 Id；
+         - 取消/主机超时产生确定结果，永不永久 WaitUntil；
+         - 选择完成后由 Action 入队具体 Exhaust/Discard Action，或输出不可变选择结果。
+
+[ ] B-07 将卡牌目标从实体 EnumTargetType 分离，至少支持：SelfCard、SelectedHandCard、
+         RandomHandCard、AllHandCards。未实现类型不得进入运行时。
+
+验收：
+  - 出牌后效果执行期间该卡位于 PlayPile，不再占手牌容量。
+  - 普通牌最终 Play -> Discard；Exhaust Self 最终 Play -> Exhaust，且不会再归弃。
+  - 指定/随机/弃尽手牌均只移动预期 CardInstanceId，不受列表下标变化影响。
+  - 选择可暂停、恢复、取消、由主机超时，并能通过命令日志重放。
+
+------------------------------------------------------------------------
+4. 工作包 C：逐个修正数值与状态 Action
+------------------------------------------------------------------------
+
+4.1 DamageAction
+
+[ ] C-D01 增加 SourceActorId、TargetActorId、可选 SourceCardId 和 DamageProperties。
+[ ] C-D02 建立 DamageSystem/CombatMath：基础值 -> 加法修改 -> 乘法修改 -> 非负取整。
+[ ] C-D03 结算顺序固定为 Block 吸收 -> Hp 损失；返回
+          DamageResult{FinalAmount, Blocked, HpLoss, WasFatal, FizzleReason}。
+[ ] C-D04 每一击独立触发 BeforeDamage/AfterDamage；死亡后移除敌人监听资格和目标资格。
+[ ] C-D05 每击后调用 BattleRuleSystem 检查玩家失败/全部敌人死亡胜利；战斗结束后停止
+          执行不允许的后续 Action。
+
+4.2 GainBlockAction
+
+[ ] C-B01 增加 SourceActorId、TargetActorId、可选 SourceCardId 和 BlockProperties。
+[ ] C-B02 接入 Block modifier；拒绝负 Value，最终 Block 保证 >= 0。
+[ ] C-B03 返回实际获得量并触发 Before/AfterGainBlock。
+
+4.3 CostEnergyAction
+
+[ ] C-E01 显式携带 PayingPlayerId，不再只依赖 context.PlayerState。
+[ ] C-E02 扣费前执行 Release 有效的不变量检查；负费用在数据加载期拒绝。
+[ ] C-E03 固化费用锁定规则：推荐命令出队时读取 CardInstance.EnergyCost 并生成 Action，
+          同一原子批次内禁止反应插到 CostEnergyAction 前；异常不足进入 BattleFaulted。
+[ ] C-E04 返回 EnergyChangeResult，供日志/表现读取。
+
+4.4 GainEnergyAction
+
+[ ] C-GE01 增加 TargetPlayerId；EffectApi 对 Self/User 解析为 Effect source，而不是命令
+           context 玩家。
+[ ] C-GE02 拒绝负 Value；按规范允许当前能量高于每回合恢复值。
+[ ] C-GE03 返回实际变化并触发 GainEnergy Hook。
+
+4.5 DrawCardAction
+
+[ ] C-DR01 增加 TargetPlayerId；通过 BattleState.Players Resolve 后抽目标玩家的牌。
+[ ] C-DR02 BattlePileApi.DrawCards 接受手牌容量并返回 DrawResult{Requested, DrawnIds,
+           StoppedReason, ReshuffleCount}。
+[ ] C-DR03 实施手牌上限规则；打出卡已先进入 PlayPile，避免错误占位。
+[ ] C-DR04 按规则触发 BeforeDraw/AfterDraw；表现层读取结果，不修改牌堆。
+[ ] C-DR05 加入非负 Value、空牌堆、跨重洗、多次重洗/牌不足检查。
+
+4.6 ApplyStatusAction
+
+[ ] C-S01 为 ICombatActor 增加战斗期 StatusStack 容器，键为 EnumStatusType，值至少包含
+          Amount/Duration（暂不需要的字段不提前实现）。
+[ ] C-S02 ApplyStatusAction.Value 必须实际参与 Add/Stack；重复施加按规范合并，不靠重复
+          HookListener 模拟层数。
+[ ] C-S03 Afterimage 的反应值从目标 StatusStack.Amount 产生，删除 StatusRegistry 中写死
+          Effect.Value=2 的事实源；避免配置值和注册表双源。
+[ ] C-S04 实现 Weak/Vulnerable/Power 对应 modifier，或在实现前从可加载状态白名单移除；
+          禁止日志后假成功。
+[ ] C-S05 增加 Apply/Stack/Remove/Expire 路径和事件；BattlePlayerState.Reset 清空战斗状态。
+
+验收：
+  - 有格挡目标按正确顺序承伤，Hp 不小于 0，死亡立即影响目标与胜负。
+  - “残影”配置 Value 改为 3 后每次实际获得 3；重复施加遵循唯一层数规则。
+  - Draw/GainEnergy 在其他玩家 Hook 触发时操作 Owner 对应玩家。
+  - 所有数值 Action 对负值和不存在目标给出明确、可测试结果。
+
+------------------------------------------------------------------------
+5. 工作包 D：目标解析、Hook 时机与 Action 自描述
+------------------------------------------------------------------------
+
+[ ] D-01 新建集中 TargetResolver：
+         - Self/User -> source；
+         - SelectedEnemy/SelectedAlly -> 校验 picked 类型、存活和阵营；
+         - AllEnemy/AllAllies -> 按稳定 EntityId 顺序展开；
+         - RandomEnemy -> 使用本局确定性随机域从合法候选中选择；
+         - 无合法目标时返回明确结果，不 fallback。
+
+[ ] D-02 EffectApi.Translate 接受完整 EffectExecutionSource（ActorId + 可选 CardId）和已验证
+         目标结果；多目标推荐展开为多个单目标 Action，保持每击/每目标 Hook 粒度明确。
+
+[ ] D-03 给 Draw/GainEnergy/Discard/CostEnergy/PlayedCardToDiscard 补显式玩家 Id；给数值
+         Action 补 SourceActorId/SourceCardId。日志、回放诊断只读这些 Id，不依赖隐式对象。
+
+[ ] D-04 把 AfterCardPlayed 的 Fire 从 BattleCommandApi 的队列构造期移动到真正的出牌
+         收尾 Action 执行点。事件应在卡牌自身效果和最终去向规则定义的确定时刻产生。
+
+[ ] D-05 为 Damage/Draw/Discard/Exhaust/Status/Energy/Block 增加最小必要 HookType；每个
+         Fire 点严格位于模拟 Action 内，反应继续翻译为普通 Action 尾插。
+
+[ ] D-06 HookManager 收集顺序必须稳定。卡牌监听器不能直接依赖 Dictionary.Values 的
+         未声明顺序；改为 CardInstanceId 排序并加确定性测试。
+
+验收：
+  - AllEnemy 对每个存活敌人各生成一次确定顺序的效果；RandomEnemy 在相同 seed/状态下
+    选择一致。
+  - SelectedEnemy 不能选择玩家、死亡敌人或 default Id。
+  - AfterCardPlayed 看到的是卡牌效果结算后的状态，且一次出牌只触发一次。
+  - 任一 Action 日志都能从自身载荷说明“谁因哪张卡对谁做了什么”。
+
+------------------------------------------------------------------------
+6. 工作包 E：自动化测试矩阵
+------------------------------------------------------------------------
+
+[ ] E-01 建立 Editor 测试程序集；测试不依赖场景、Prefab、Presenter 或动画。
+
+[ ] E-02 每个 Action 的基础测试：
+         - CostEnergy：正常、刚好归零、不足、负值、玩家归属；
+         - GainEnergy：正常、跨玩家目标、负值；
+         - Damage：无格挡、部分格挡、完全格挡、致死、多段、目标已死亡；
+         - GainBlock：正常、modifier、负值、无目标；
+         - Draw：普通、重洗、总牌不足、满手、空牌堆、跨玩家、固定 seed；
+         - ApplyStatus：首次、叠层、Value 生效、不支持状态、战斗重置；
+         - Exhaust：Self、选中手牌、多张、重复/非法 Id、与归弃互斥；
+         - Discard：指定、随机、弃尽、保留规则、数量不足；
+         - HandCardChoose：合法、非法、取消、主机超时、错误玩家、重放；
+         - PlayedCardToDiscard：Play -> Discard、已 Exhaust、状态损坏。
+
+[ ] E-03 系统测试：
+         - PlayCard 完整顺序 Hand -> Play -> Cost -> Effects -> FinalPile -> Hook；
+         - “攻击”“防御”“剑柄打击”“残影”“连斩”的文字与实际结果一致；
+         - 多目标/随机目标稳定；
+         - Hook 反应顺序与展开上限；
+         - Action 抛异常后的 Faulted/清理；
+         - 连续两场战斗无残留；
+         - 相同命令日志 + seed 得到相同最终状态 hash。
+
+[ ] E-04 每个工作包完成后运行 Unity Test Framework 与 Assembly-CSharp 编译；记录零错误
+         结果。既有 System.Net.Http 引用冲突警告单独跟踪，不混入 Action 修复。
+
+------------------------------------------------------------------------
+7. 建议实施顺序与依赖
+------------------------------------------------------------------------
+
+  1. A（执行安全/验证）先做，避免后续新 Action 把错误带进 Release。
+  2. B-01~B-03（PlayPile/移动）是 Draw 手牌上限、Exhaust Self 和 Discard 的共同前提。
+  3. B-04~B-07（Exhaust/Discard/Choice）完成两个占位 Action。
+  4. C（数值/状态）修正当前 5 张卡的真实行为。
+  5. D（目标/Hook）在显式 Source/Target 载荷上完成多人和反应语义。
+  6. E 的测试不是末尾一次补写：每个对应条目随实现同步落地，最后做完整回归。
+
+可拆分提交建议：
+  - commit 1：Action 标准、测试骨架、EffectValidator、Executor fault handling。
+  - commit 2：PlayPile 与统一 MoveCard、PlayedCardToDiscard。
+  - commit 3：Exhaust/Discard/ChoiceCommand。
+  - commit 4：Damage/Block/Energy/Draw 规则与结果。
+  - commit 5：StatusStack 与 modifier chain。
+  - commit 6：TargetResolver、Hook 时机、多人/回放回归。
+
+------------------------------------------------------------------------
+8. 总完成标准
+------------------------------------------------------------------------
+
+  - 10 个现有 GameAction 不再有日志占位或不可达死代码。
+  - 所有 Action 的 Source/Target/Card/Value 语义明确，运行结果不依赖隐式当前玩家。
+  - 所有 cards.json 可加载 Effect 都有真实实现；未支持组合在加载期明确失败。
+  - 战斗可从出牌经过伤害/格挡/抽牌/状态/牌堆去向进入胜负，不永久挂起。
+  - 本地、主机和远端输入统一走命令；选择可记录和重放。
+  - 相同初始状态、seed、命令序列得到一致 Action 顺序与状态 hash。
+  - Unity 编译 0 errors，Action 测试矩阵全部通过。
+
+========================================================================

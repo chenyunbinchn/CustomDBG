@@ -1,6 +1,5 @@
 using System.Collections;
 using enums;
-using gameStates.transient;
 using UnityEngine;
 
 namespace action.gameEffectActions
@@ -20,7 +19,7 @@ namespace action.gameEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
+        public override IEnumerator Execute(BattleActionContext context)
         {
             Debug.Log($"[ExhaustCardAction] TargetType = {TargetType}");
             yield return null;

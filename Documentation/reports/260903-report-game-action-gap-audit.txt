@@ -1,0 +1,372 @@
+========================================================================
+  GameAction 全量缺口审计报告
+  日期：2026-09-03
+========================================================================
+
+审计基线：当前工作区已包含 DrawCardAction 的确定性抽牌修复与
+BattleActionContext。审计对象为 Assets/Scripts 下全部 GameAction 子类，并向外检查
+EffectApi、BattleCommandApi、ActionExecutor、BattlePileApi、HookSystem、状态容器和现有
+战斗规则。
+
+严重级别：
+  P0：启用后会卡死、崩溃或造成联机/回放状态分叉。
+  P1：会直接产生错误战斗结果，或阻塞现有战斗闭环。
+  P2：当前基础行为可用，但规则、扩展性或防御性不完整。
+  P3：工程质量、诊断和性能问题。
+
+------------------------------------------------------------------------
+1. 结论
+------------------------------------------------------------------------
+
+当前共有 10 个 GameAction 子类：
+
+  纯占位、没有业务状态修改：
+    - DiscardHandCardAction
+    - ExhaustCardAction
+
+  控制流占位、当前不可安全使用：
+    - HandCardChooseAction
+
+  已修改状态，但核心规则错误或缺失：
+    - DamageAction
+    - ApplyStatusAction
+    - PlayedCardToDiscardAction
+
+  最小路径已工作，但仍有规则缺口：
+    - CostEnergyAction
+    - GainEnergyAction
+    - DrawCardAction
+    - GainBlockAction
+
+此外存在 8 组跨 Action 的系统问题：目标验证与多目标展开、隐式玩家归属、Action
+载荷缺少来源、执行异常会锁死、选择状态机没有入口、Hook 触发时机过早、战斗结束与
+跨战斗重置缺失、自动化测试为空。这些问题不能只在某一个 Execute() 内打补丁解决。
+
+当前 cards.json 的 5 张测试卡中：
+
+  - “剑柄打击”的抽牌已修复。
+  - “攻击”“剑柄打击”“连斩”的伤害会绕过目标格挡，也不会触发死亡/胜负结算。
+  - “残影”在单次、Value=2 的样例下表面可用，但实际使用的是 StatusRegistry 写死的
+    2，ApplyStatusAction.Value 没有生效；重复施加只是重复添加监听器。
+  - 当前没有配置 Exhaust 或 Discard 效果的卡，所以两个占位实现暂时是潜伏故障。
+
+------------------------------------------------------------------------
+2. Action 逐项审计
+------------------------------------------------------------------------
+
+2.1 DamageAction：部分实现，P1
+
+证据：Assets/Scripts/action/gameEffectActions/DamageAction.cs:23-31。
+
+当前行为：Resolve 目标后直接执行 target.Hp -= Value。
+
+问题：
+  D-01. 完全绕过 Block。现有战斗需求明确规定“先扣格挡，溢出伤害再扣 Hp”。
+  D-02. 没有把 Hp 限制到合法范围，也没有死亡标记、敌人移除、玩家失败或全部敌人
+        死亡后的胜利判断。
+  D-03. Action 只有 Value 和 Target，没有 Source、来源卡牌或伤害属性，无法正确计算
+        Strength/Weak/Vulnerable、攻击类限定、反伤和来源过滤 Hook。
+  D-04. 目标敌人不存在时静默跳过并被执行器标记 Finished。非法目标、目标在前序
+        Action 中死亡、允许的 fizzled hit 三种语义没有区分。
+  D-05. Value 没有非负校验；负伤害会直接治疗目标。
+  D-06. 没有每击的 Before/AfterDamage Hook，因此“连斩”的两次伤害不能形成两个明确
+        伤害事件。
+
+影响：当前任何带格挡的敌人都会受到错误 Hp 伤害；战斗无法由伤害自然进入胜负状态。
+
+2.2 GainBlockAction：最小实现，P2
+
+证据：Assets/Scripts/action/gameEffectActions/GainBlockAction.cs:23-31。
+
+当前行为：Resolve 目标后执行 target.Block += Value。
+
+问题：
+  B-01. 没有非负校验；负 Value 会绕过专门的失去格挡语义直接减格挡，并可能得到负数。
+  B-02. 没有 Source、来源卡牌和 Block 属性，无法接入未来的 Dexterity/Frail 等修改器。
+  B-03. 目标不存在时静默完成，没有区分非法目标与合法失效。
+  B-04. 没有 GainBlock 前后 Hook 或结果值，表现层和反应系统不知道实际获得多少格挡。
+  B-05. 多目标类型依赖 EffectApi，但目前 AllAllies/AllEnemy 等会被错误退回 picked。
+
+影响：“防御”当前能增加 5 格挡，但无法保证更复杂状态、负数配置和多目标卡的正确性。
+
+2.3 CostEnergyAction：最小实现，P2
+
+证据：Assets/Scripts/action/gameEffectActions/CostEnergyAction.cs:21-27；
+      Assets/Scripts/systems/BattleCommandApi.cs:79,106。
+
+当前行为：出牌命令先校验费用，再入队扣除当前命令玩家的能量。
+
+问题：
+  E-01. Action 只依赖 context.PlayerState，不携带付款玩家 Id；它不是自描述的 Action，
+        不能脱离创建它的命令批次解释或复放。
+  E-02. 只在扣除后用 MyAssert 检查非负。MyAssert 在非 Editor、非 Development Build 中
+        会被条件编译移除；Action 自身没有运行时不变量保护。
+  E-03. Value 没有非负校验；负费用会增加能量。
+  E-04. 如果未来在同一批 Action 中有插队反应改变能量，命令展开时的校验与实际扣费
+        时可能不再原子，需要明确“费用锁定/重验/禁止插队”的规则。
+  E-05. 没有支付失败结果或能量变化事件。
+
+影响：当前普通出牌路径基本可用，但 Action 的正确性依赖外部调用顺序和开发版断言。
+
+2.4 GainEnergyAction：最小实现，P1/P2
+
+证据：Assets/Scripts/action/gameEffectActions/GainEnergyAction.cs:20-25；
+      Assets/Scripts/systems/EffectApi.cs:24-26。
+
+当前行为：无论 Effect.TargetType 是什么，都给 context.PlayerState 增加 Value。
+
+问题：
+  GE-01. 没有 Target 字段，EffectApi 也不做目标解析。由其他玩家/敌人 Hook 产生的
+         GainEnergy 会错误作用于“发出当前命令的玩家”，而不是 HookListener.Owner。
+  GE-02. 没有定义能量获得是否受上限约束；PlayerInfo.EnergiesLimit 仅用于入战初始化。
+  GE-03. Value 没有非负校验；负值实际变成扣能量。
+  GE-04. 没有能量变化结果和 Hook。
+
+影响：单人自我回能可工作，多玩家和非 Self/User 来源会写错玩家。
+
+2.5 DrawCardAction：基础实现已修复，仍有 P1/P2 缺口
+
+证据：Assets/Scripts/action/gameEffectActions/DrawCardAction.cs:21-26；
+      Assets/Scripts/systems/BattlePileApi.cs:70-87。
+
+当前行为：使用 context.PlayerState 与本局 RandomManager 调用 DrawCards；能从抽牌堆
+抽牌，空堆时确定性洗回弃牌堆，牌不足时提前结束。
+
+问题：
+  DR-01. 没有 Target 字段，与 GainEnergyAction 相同：非当前命令玩家产生的抽牌反应
+         会抽错玩家的牌。
+  DR-02. 战斗需求建议手牌上限 10，但 DrawCards 没有容量规则；满手时停止、留在抽牌
+         堆、进入弃牌堆或其他去向尚未标准化。
+  DR-03. PlayedCardToDiscardAction 在效果之后执行，打出的牌仍占手牌位置；一旦加入手牌
+         上限，“打一张抽一张”可能因为这张已打出的牌仍在手中而少抽。
+  DR-04. 没有 BeforeDraw/AfterDraw、实际抽取数量或 CardInstanceId 结果，无法可靠驱动
+         抽牌反应和逐张动画。
+  DR-05. Value 没有显式合法性检查；零或负数目前静默 no-op。
+  DR-06. 缺普通抽牌、跨弃牌堆重洗、总牌不足、手牌满、多玩家归属的 Action 自动测试。
+
+影响：“剑柄打击”当前可抽牌，但还不是完整的通用抽牌规则。
+
+2.6 ApplyStatusAction：部分实现，P1
+
+证据：Assets/Scripts/action/gameEffectActions/ApplyStatusAction.cs:26-49；
+      Assets/Scripts/hook/StatusRegistry.cs:14-35。
+
+当前行为：Afterimage 命中注册表后复制一个 HookListener 到目标；其他状态只打日志。
+
+问题：
+  S-01. Value 完全未参与已实现分支。Afterimage 的“2 格挡”写死在 StatusRegistry 的
+        Effect.Value=2，cards.json 的 ApplyStatus.Value=2 只是碰巧相同。
+  S-02. 重复施加没有“层数”模型，只会重复添加监听器；没有合并、减少、移除和持续
+        时间规则。
+  S-03. Weak、Vulnerable、Power 已存在于 EnumStatusType，但没有任何状态修改；Action
+        仍输出日志并正常结束，形成静默假成功。
+  S-04. Modifier 型状态没有存储容器，Damage/GainBlock 也没有读取修改器的管道。
+  S-05. 不支持的 StatusType 没有在 cards.json 加载期拒绝。
+  S-06. 目标不存在时与“不支持状态”共用 else，诊断信息不能区分根因。
+  S-07. 没有 Apply/Stack/Remove Status Hook 和测试。
+
+影响：“残影”只能在当前硬编码样例中工作；一旦调整层数或使用其他状态，卡牌描述与
+实际行为会分叉。
+
+2.7 ExhaustCardAction：未实现，P1
+
+证据：Assets/Scripts/action/gameEffectActions/ExhaustCardAction.cs:22-26；
+      Assets/Scripts/systems/EffectApi.cs:39-42。
+
+当前行为：仅打印 TargetType；EffectApi 创建它时总是传入空的 int[]。
+
+问题：
+  EX-01. Execute 不移动任何卡，ExhaustedPile 永远不会因该 Action 增加。
+  EX-02. Self 消耗需要“当前打出的 CardInstanceId”，但 EffectApi.Translate 只接收实体
+         source/picked，没有来源卡牌；Action 无法知道要消耗哪张牌。
+  EX-03. CardIndexArray 使用手牌下标而非 CardInstanceId，违反联机规则“命令和 Action
+         不使用 UI 下标”；前序抽牌/弃牌会让下标指向不同卡。
+  EX-04. EffectAuthoring 的 EnumTargetType 是战斗实体目标集合，不能准确表达
+         SelfCard/SelectedHandCard/RandomHandCard 等卡牌目标，数据模型语义混用。
+  EX-05. 没有 Hand/Play/Discard -> ExhaustedPile 的统一单卡移动原语与来源校验。
+  EX-06. BattlePlayerState 没有 PlayPile，打出的牌直到批次尾部仍留在 HandCards；
+         Exhaust Self 与 PlayedCardToDiscardAction 的最终去向只能靠“先删到者获胜”的
+         隐式顺序碰运气。
+  EX-07. 没有 Exhaust Hook、非法卡处理和测试。
+
+影响：任何 Exhaust 卡都会显示执行完成但完全不消耗卡牌。
+
+2.8 DiscardHandCardAction：未实现且不可构造，P1
+
+证据：Assets/Scripts/action/gameEffectActions/DiscardHandCardAction.cs:7-17；全库没有
+      new DiscardHandCardAction 调用。
+
+当前行为：只有日志；EnumEffectType 中也没有 Discard，因此不会从数据配置进入队列。
+
+问题：
+  DC-01. Execute 不修改 HandCards 或 DiscardPile。
+  DC-02. 没有构造函数、Value、Target、CardInstanceId 列表或选择规则。
+  DC-03. get-only Id 从未赋值，实例的 Id 永远为默认 0；ActionStatus 也没有规范的初始值。
+  DC-04. 没有对应 EffectType/命令翻译入口，当前是死代码。
+  DC-05. 没有区分随机弃牌、指定弃牌、弃尽手牌和回合结束弃牌；这些语义需要不同
+         Hook/保留牌规则，不能全部塞进一个无载荷类。
+  DC-06. 没有卡牌选择、取消/不足数量策略、Discard Hook 和测试。
+
+影响：当前无法通过 Action 系统表达“弃牌”。回合结束弃手牌也因此没有实现基础原语。
+
+2.9 HandCardChooseAction：不可安全使用，启用即 P0
+
+证据：Assets/Scripts/action/gameEffectActions/HandCardChooseAction.cs:9-31；全库没有
+      new HandCardChooseAction 调用。
+
+当前行为：Execute 把 CardIndex 重置为 -1，然后无限等待外部直接调用 OnPlayerChose。
+
+问题：
+  CH-01. 没有 UI/Presenter/BattleCommand 路径持有并调用该 Action；而 ActionExecutor 在
+         执行前已经把它从 ActionQueue Pop，外部也无法从队列找到它。
+  CH-02. 一旦入队，WaitUntil 很可能永久不结束，IsRunning 永远为 true，后续所有命令
+         永久堵塞。
+  CH-03. 构造函数传入的 cardIndex 会在 Execute 开头无条件清为 -1，参数没有意义。
+  CH-04. 使用手牌下标而不是 CardInstanceId；没有候选快照、选择数量、选择玩家、
+         ChoiceId 或合法性校验。
+  CH-05. OnPlayerChose 是本地对象方法调用，不是纯值 ChoiceCommand，无法网络传输或
+         进入回放日志。
+  CH-06. 没有取消、超时、掉线兜底；EnumActionStatus.ReadyToResumeExecuting/Canceled
+         从未参与控制流。
+  CH-07. 选择结果没有传递给 ExhaustCardAction 或 DiscardHandCardAction 的可靠机制。
+
+影响：该类当前是不可达死代码；若直接接入 Exhaust/Discard，会把战斗锁死。
+
+2.10 PlayedCardToDiscardAction：基本移动可用，流程不完整，P1/P2
+
+证据：Assets/Scripts/action/gameEffectActions/PlayedCardToDiscardAction.cs:24-39；
+      Assets/Scripts/systems/BattleCommandApi.cs:106-116。
+
+当前行为：整张卡的效果执行后，从 HandCards 删除 Card，成功则追加到 DiscardPile；
+如果手中已不存在则静默跳过。
+
+问题：
+  PC-01. 缺少 PlayPile/“从手牌进入打出区”的 Action。卡在扣费、伤害、抽牌和状态施加
+         期间仍属于 HandCards，与现有出牌流程需求第 6 步不符。
+  PC-02. 因为卡仍在手牌，手牌上限、选牌、弃牌和 Exhaust Self 都会看到不该再属于
+         手牌的已打出卡。
+  PC-03. 无条件入队“归弃”；卡牌最终目的地应由卡牌关键词/Exhaust Self 等规则决定。
+         当前只能依赖“若前序 Action 已移走则跳过”的隐式竞争。
+  PC-04. 找不到卡时统一静默跳过，无法区分“已合法消耗”与状态损坏/重复卡 Id。
+  PC-05. 没有 Played/Discard 的实际执行事件结果。
+  PC-06. Action 依赖 context.PlayerState 而不携带玩家 Id，自描述性不足。
+
+影响：当前普通牌能进入弃牌堆，但加入手牌上限、选择或消耗规则后会出现顺序错误。
+
+------------------------------------------------------------------------
+3. 跨 Action 的系统问题
+------------------------------------------------------------------------
+
+3.1 X-01：目标验证缺失，P1
+
+BattleCommandApi.CanPlayCard 只校验回合、卡、手牌和能量，没有验证目标是否存在、存活、
+类型是否匹配卡牌每个 Effect.TargetType。BattlePresenter 当前默认选择 EnemyList[0]。
+
+结果：SelectedEnemy 可以收到 default/玩家/死亡敌人 Id；命令仍支付费用并打出卡，
+DamageAction 可能静默 no-op。
+
+3.2 X-02：多目标和随机目标被错误降级，P1
+
+EffectApi.ResolveTargetId 只实现 Self/User/SelectedEnemy；AllEnemy、RandomEnemy、
+SelectedAlly、AllAllies、None 全部默认返回 picked。RandomEnemy 不消耗确定性 RNG，
+AllEnemy/AllAllies 也不会展开多个 Action。
+
+结果：配置可以成功加载，但效果含义错误。应在数据加载期拒绝尚未支持的组合，不能静默
+退回 picked。
+
+3.3 X-03：Context 当前玩家被误当作 Action 语义目标，P1
+
+BattleActionContext.PlayerState 表示“产生整批 Action 的命令玩家”，适合 CostEnergy 和
+PlayedCardToDiscard 的现有调用，但不是所有反应 Action 的目标。HookSystem 会以
+HookListener.Owner 作为 Effect source；如果 Owner 不是命令玩家，GainEnergy、Draw 和
+未来 Discard 仍会操作 context.PlayerState，写错实体。
+
+原则：Context 提供执行服务和世界状态；“谁受到这个 Action”必须是 Action 自己的显式
+Id 载荷，不能从批次 Context 猜测。
+
+3.4 X-04：Action 载荷缺少来源和来源卡，P1/P2
+
+Damage/GainBlock/ApplyStatus 有 Target，但没有 Source 与 SourceCard；Draw/GainEnergy/
+CostEnergy/PlayedCardToDiscard 又依赖隐式玩家。修改器、Hook 过滤、日志、回放诊断、
+Exhaust Self 都缺少因果信息。
+
+建议统一最小来源结构：SourceActorId + 可选 SourceCardId；每个需要目标的 Action 再携带
+显式 TargetActorId/TargetCardIds。
+
+3.5 X-05：ActionExecutor 异常后会永久锁死，P0
+
+ActionExecutor.Run 没有 try/finally。Action 已从队列移除后，只要 Execute 抛异常，
+IsRunning 不会恢复 false，ActionStatus 留在 Executing，BattleCommandApi.Pump 永久返回。
+执行器也没有 CurrentAction、失败状态或恢复/终止策略。
+
+另外，ActionExecutor 在 coroutine 返回后无条件写 Finished，会覆盖 Action 自己可能设置的
+Canceled 等终态；ActionStatus 目前不是受约束的状态机。
+
+3.6 X-06：Effect 数据验证依赖开发断言，Release 可入队 null，P0
+
+EffectApi 对 None、CostEnergy 和未知枚举只调用 MyAssert，然后继续 Add(action)。
+MyAssert 带 Conditional(UNITY_EDITOR/DEVELOPMENT_BUILD)，Release 调用会被移除，因此
+action 仍为 null 并被加入队列；执行器随后访问 action.ActionStatus 抛 NullReference，
+再触发 X-05 锁死。CardDefinitionManager 只验证 effects 数组非空，没有验证合法的
+EffectType/TargetType/StatusType/Value 组合。
+
+3.7 X-07：Hook 的 AfterCardPlayed 在 Action 执行前就被收集，P1/P2
+
+BattleCommandApi 在“创建 Action 队列”阶段调用 HookSystem.Fire。此时费用尚未扣、效果尚未
+执行、卡也仍在手牌。虽然反应 Action 排在卡牌自身 Action 后面执行，但“哪些监听器命中”
+已经按旧状态决定。
+
+这会导致：本次效果移除/禁用监听器仍可能触发；本次效果新建监听器一定看不到事件；
+事件上下文 Value 固定为 0；Hook 不是在实际完成出牌的模拟时刻产生。应将 Fire 放入明确的
+CardPlayedAction/出牌收尾 Action 执行点，或固化“展开时快照”规则并接受其语义。
+
+3.8 X-08：没有胜负检查、展开上限、跨战斗清理和自动测试，P0/P1
+
+  - 执行器没有每个 Action 后的 BattleRuleSystem/CheckWinCondition。
+  - Hook 规则要求对单命令展开 Action 数设上限防止反应死循环，当前没有实现。
+  - EnterBattle 不清空 ActionQueue、Pending commands、CurrentAction/IsRunning，也没有定义
+    异常中断后如何进入下一场；GameState.IsInBattle 没有有效读写。
+  - 项目中没有 Action 自动化测试程序集或测试文件。
+
+------------------------------------------------------------------------
+4. 推荐修复顺序
+------------------------------------------------------------------------
+
+第一阶段，先防止错误继续扩散：
+  1. 增加 Effect/Target 数据加载期验证，禁止 null Action 入队。
+  2. ActionExecutor 增加 CurrentAction、try/finally、明确失败终态和单命令 Action 上限。
+  3. 增加 PlayCard 目标合法性验证。
+
+第二阶段，修正卡牌生命周期与缺失牌堆 Action：
+  1. 引入 PlayPile 和 Hand -> Play 的独立 Action。
+  2. 牌堆移动统一使用 CardInstanceId，不使用手牌下标。
+  3. 实现 Exhaust Self、指定卡消耗、弃牌和出牌最终目的地。
+  4. 用 ChoiceCommand 重建 HandCardChooseAction，增加选择玩家、ChoiceId、候选 Id、
+     取消和由主机决定的超时结果。
+
+第三阶段，修正数值与状态：
+  1. Damage 先扣 Block，再扣 Hp，返回 DamageResult；每击后做死亡与胜负检查。
+  2. 建立 StatusStack 存储和 Amount 规则，Afterimage 使用实际 Value。
+  3. 接入 Weak/Vulnerable/Power 的确定性 modifier chain。
+  4. 定义 GainBlock/GainEnergy/Draw 的上限、负值和实际结果规则。
+
+第四阶段，补齐目标与反应：
+  1. Action 显式携带 Source、Target 和可选 SourceCard。
+  2. 集中 TargetResolver，正确处理单体、多体和随机目标。
+  3. 把 Hook Fire 移到真实 Action 执行点，并增加 Draw/Discard/Exhaust/Damage 等事件。
+
+第五阶段，以自动化测试锁定：
+  1. 每个 Action 至少覆盖正常、边界、非法输入三个方向。
+  2. 覆盖固定 seed 重洗、多人目标归属、Hook 顺序、选择暂停/恢复/取消/超时。
+  3. 覆盖异常 Action 后执行器释放、反应死循环上限和连续两场战斗无残留。
+
+------------------------------------------------------------------------
+5. 审计边界
+------------------------------------------------------------------------
+
+本报告只列出现状问题和修复方向，不实施上述 Action 功能。DrawCardAction 的直接抽牌故障
+已在本工作区修复；其余问题对应任务见：
+
+  Documentation/tasks/260903-task-complete-game-actions.txt
+
+========================================================================

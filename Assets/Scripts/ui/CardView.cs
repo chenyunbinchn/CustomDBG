@@ -12,7 +12,8 @@ namespace ui
 {
     // CardView renders one card and reports pointer gestures to HandView.
     public sealed class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,
-        IPointerDownHandler, IPointerUpHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
+        IPointerDownHandler, IPointerUpHandler, IPointerClickHandler, IBeginDragHandler,
+        IDragHandler, IEndDragHandler, IInitializePotentialDragHandler
     {
         [SerializeField] private RectTransform root;
         [SerializeField] private RectTransform visualRoot;
@@ -24,16 +25,21 @@ namespace ui
 
         private CardViewModel _model;
         private Canvas _canvas;
+        private ScrollRect _parentScrollRect;
         private bool _isDragging;
+        private bool _wasDragged;
+        private bool _isPointerOver;
 
         public event Action<CardView, PointerEventData> DragStarted;
         public event Action<CardView, PointerEventData> DragEnded;
+        public event Action<CardView> Clicked;
 
         public CardInstanceId CardId => _model == null ? default : _model.CardId;
 
         private void Awake()
         {
             _canvas = GetComponentInParent<Canvas>();
+            _parentScrollRect = GetComponentInParent<ScrollRect>();
             if (root == null)
             {
                 // Legacy prefabs may still keep their layout RectTransform on visualRoot.
@@ -78,6 +84,8 @@ namespace ui
             canvasGroup.interactable = model.IsPlayable;
             canvasGroup.blocksRaycasts = true;
             visualRoot.localScale = Vector3.one;
+            _wasDragged = false;
+            _isPointerOver = false;
         }
 
         public void SetHandPosition(Vector2 position, float rotation)
@@ -106,23 +114,24 @@ namespace ui
                 return;
             }
 
+            _isPointerOver = true;
             visualRoot.DOKill();
-            visualRoot.DOScale(1.12f, 0.12f);
+            visualRoot.DOScale(1.2f, 0.12f);
         }
 
         public void OnPointerExit(PointerEventData eventData)
         {
-            if (_isDragging)
-            {
-                return;
-            }
-
+            _isPointerOver = false;
             visualRoot.DOKill();
-            visualRoot.DOScale(1f, 0.12f);
+            if (!_isDragging)
+            {
+                visualRoot.DOScale(1f, 0.12f);
+            }
         }
 
         public void OnPointerDown(PointerEventData eventData)
         {
+            _wasDragged = false;
             if (_model == null || !_model.IsPlayable)
             {
                 return;
@@ -140,13 +149,25 @@ namespace ui
             }
 
             visualRoot.DOKill();
-            visualRoot.DOScale(1f, 0.1f);
+            visualRoot.DOScale(_isPointerOver ? 1.2f : 1f, 0.1f);
+        }
+
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            if (_model == null || eventData.button != PointerEventData.InputButton.Left || _wasDragged)
+            {
+                return;
+            }
+
+            Clicked?.Invoke(this);
         }
 
         public void OnBeginDrag(PointerEventData eventData)
         {
+            _wasDragged = true;
             if (_model == null || !_model.IsPlayable)
             {
+                _parentScrollRect?.OnBeginDrag(eventData);
                 return;
             }
 
@@ -161,6 +182,7 @@ namespace ui
         {
             if (!_isDragging)
             {
+                _parentScrollRect?.OnDrag(eventData);
                 return;
             }
 
@@ -171,12 +193,21 @@ namespace ui
         {
             if (!_isDragging)
             {
+                _parentScrollRect?.OnEndDrag(eventData);
                 return;
             }
 
             _isDragging = false;
-            visualRoot.localScale = Vector3.one;
+            visualRoot.localScale = _isPointerOver ? Vector3.one * 1.2f : Vector3.one;
             DragEnded?.Invoke(this, eventData);
+        }
+
+        public void OnInitializePotentialDrag(PointerEventData eventData)
+        {
+            if (_model == null || !_model.IsPlayable)
+            {
+                _parentScrollRect?.OnInitializePotentialDrag(eventData);
+            }
         }
 
         private void OnDisable()
@@ -184,6 +215,8 @@ namespace ui
             root?.DOKill();
             visualRoot?.DOKill();
             _isDragging = false;
+            _wasDragged = false;
+            _isPointerOver = false;
         }
     }
 }

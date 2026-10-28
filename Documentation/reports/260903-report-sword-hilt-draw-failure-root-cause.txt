@@ -1,0 +1,114 @@
+========================================================================
+  剑柄打击无法正确抽卡的问题根源报告
+  日期：2026-09-03
+========================================================================
+
+------------------------------------------------------------------------
+1. 结论
+------------------------------------------------------------------------
+
+“剑柄打击”的卡牌配置、效果解析、命令入队和 Action 调度都已接通；真正没有实现的是
+DrawCardAction.Execute()。
+
+直接故障：
+  DrawCardAction.Execute() 只打印 Value 并 yield return null，没有修改 DrawPile、
+  HandCards 或 DiscardPile。
+
+架构根源：
+  完整抽牌操作在抽牌堆为空时需要将弃牌堆洗回抽牌堆，因此需要本局统一的
+  RandomManager。当前 GameAction.Execute() 只接收 BattleState 和 BattlePlayerState，
+  ActionExecutor 也只传递这两个对象，无法把 GameState.RandomManager 交给
+  DrawCardAction。
+
+所以这不是 CardView、BattleHUD 或 Presenter 的显示问题，而是战斗 Action 执行上下文
+缺少确定性随机源，导致 DrawCardAction 一直停留在占位实现。
+
+------------------------------------------------------------------------
+2. 已确认正常的链路
+------------------------------------------------------------------------
+
+卡牌配置正确：
+  Assets/StreamingAssets/cards.json:24 定义“剑柄打击”。
+  Assets/StreamingAssets/cards.json:31 定义 DrawCards/User/value=1。
+
+效果翻译正确：
+  Assets/Scripts/systems/EffectApi.cs:30-31 将 DrawCards 转换为
+  DrawCardAction(effect.Value, ...)。
+
+命令和 Action 队列正确：
+  BattleCommandApi 依次加入扣能量、卡牌效果和打出后弃牌 Action，并在
+  Assets/Scripts/systems/BattleCommandApi.cs:119 启动 ActionExecutor。
+
+ActionExecutor 确实会执行 DrawCardAction：
+  Assets/Scripts/action/ActionExecutor.cs:39 调用 action.Execute(battleState, playerState)。
+
+牌堆算法已经存在：
+  Assets/Scripts/systems/BattlePileApi.cs:70-86 的 DrawCards() 已实现从 DrawPile 尾部
+  移入 HandCards、空堆时重洗 DiscardPile，以及牌不足时提前结束。
+
+------------------------------------------------------------------------
+3. 断点与根因
+------------------------------------------------------------------------
+
+断点位于：
+  Assets/Scripts/action/gameEffectActions/DrawCardAction.cs:21-25
+
+当前 Execute() 没有调用 BattlePileApi.DrawCards()，因此 Action 虽然进入队列并显示为
+执行完成，游戏状态实际上没有发生抽牌变化。
+
+不能仅在 DrawCardAction 中随手创建随机数：
+  BattlePileApi.DrawCards() 在 DrawPile 为空时调用 ReshuffleDiscardIntoDraw()；后者必须
+  使用 GameState.RandomManager，才能维持相同 seed、命令顺序下的确定性结果。使用
+  UnityEngine.Random 或 new Random() 会破坏回放和未来多人同步的一致性。
+
+RandomManager 实际存在于：
+  Assets/Scripts/gameStates/persistant/GameState.cs:14
+
+但 GameAction 的接口位于：
+  Assets/Scripts/action/GameAction.cs:11
+
+该接口没有 RandomManager 或统一 BattleContext；这就是业务实现无法正确接入现有
+牌堆 API 的结构性原因。
+
+------------------------------------------------------------------------
+4. 为什么不是 UI 问题
+------------------------------------------------------------------------
+
+BattlePresenter 在提交出牌命令后等待 Command、ActionExecutor 和 ActionQueue 全部稳定，
+随后根据 HandCards、DrawPile 和 DiscardPile 重新生成 ViewModel。
+
+因此，只要 DrawCardAction 正确修改 BattlePlayerState，现有 HUD 就会在 Action 批次完成
+后显示新手牌和新数量。当前 HUD 没有变化，是因为它读到的业务状态从未改变。
+
+不应在 CardView 点击、出牌动画或 BattleHUD 中补抽牌，否则会绕过 BattleCommand 和
+GameAction，造成 UI 与权威状态分裂。
+
+------------------------------------------------------------------------
+5. 推荐修复方向（本报告不实施）
+------------------------------------------------------------------------
+
+推荐引入统一的 BattleActionContext，至少携带：
+  - BattleState；
+  - 当前命令对应的 BattlePlayerState；
+  - 本局 GameState.RandomManager。
+
+然后让 ActionExecutor 将该 Context 传给所有 GameAction，DrawCardAction 再调用：
+
+  BattlePileApi.DrawCards(context.PlayerState, Value, context.RandomManager)
+
+较小但过渡性的方案，是直接给 GameAction.Execute() 和 ActionExecutor.Kick() 增加
+RandomManager 参数。不要只给 DrawCardAction 创建独立随机源。
+
+------------------------------------------------------------------------
+6. 相关但不是本次根因的缺口
+------------------------------------------------------------------------
+
+  - BattleApi.EnterBattle() 当前只构建并洗牌抽牌堆，没有自动抽取初始手牌。
+  - UnityBoostrap 的 S 键会直接调用 BattlePileApi.DrawCards()，它能抽牌是因为绕过了
+    DrawCardAction，并且直接取得 GameState.RandomManager。
+  - 手牌上限、满手后的牌去向、抽牌前后 Hook 和抽牌动画仍未定义。
+  - 当前没有覆盖 DrawCardAction 与重洗分支的自动化测试。
+
+这些事项会影响完整抽牌规则，但都不是“剑柄打击完全没有抽到牌”的直接原因。
+
+========================================================================

@@ -12,7 +12,12 @@ namespace systems
     //       Target types resolve to a concrete EntityId here (Self/User -> source, SelectedEnemy -> picked).
     public static class EffectApi
     {
-        public static void Translate(Effect effect, ActionEntityId source, ActionEntityId picked, GameActionManager actionManager)
+        public static void Translate(
+            Effect effect,
+            ActionEntityId source,
+            ActionEntityId picked,
+            GameActionManager actionManager,
+            ulong rootCommandId)
         {
             GameAction action = null;
             switch (effect.EffectType)
@@ -45,7 +50,7 @@ namespace systems
                     break;
             }
             MyAssert.Assert(action != null, "Effect can't be translated to action, null action detected!!");
-            actionManager.Add(action);
+            actionManager.Add(action, rootCommandId);
         }
 
         // Note: Single-target resolution only for now. Self/User -> the effect's source; SelectedEnemy -> the picked target.

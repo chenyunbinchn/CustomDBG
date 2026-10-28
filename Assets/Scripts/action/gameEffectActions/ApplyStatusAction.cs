@@ -1,7 +1,6 @@
 using System.Collections;
 using combat;
 using enums;
-using gameStates.transient;
 using hook;
 using UnityEngine;
 
@@ -24,9 +23,9 @@ namespace action.gameEffectActions
             ActionStatus = actionStatus;
         }
 
-        public override IEnumerator Execute(BattleState battleState, BattlePlayerState playerState)
+        public override IEnumerator Execute(BattleActionContext context)
         {
-            ICombatActor target = EntityApi.Resolve(Target, battleState);
+            ICombatActor target = EntityApi.Resolve(Target, context.BattleState);
             if (target != null && StatusRegistry.TryGetTemplate(StatusType, out HookListener template))
             {
                 // Hook-type status: copy the shared registry template into a NEW listener (never add the

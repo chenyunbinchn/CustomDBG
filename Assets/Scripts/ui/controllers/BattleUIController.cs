@@ -15,6 +15,7 @@ namespace ui.controllers
         [SerializeField] private string battlePageAddress = "UI/BattlePage";
         [SerializeField] private string battleHudAddress = "UI/BattleHUD";
         [SerializeField] private string cardPileDialogModalAddress = "UI/CardPileDialogModal";
+        [SerializeField] private string cardDetailModalAddress = "UI/CardDetailModal";
 
         private BattlePresenter _presenter;
 
@@ -72,7 +73,7 @@ namespace ui.controllers
 
             MyAssert.Assert(unityBootstrap != null, "BattleUIController requires UnityBoostrap.");
             _presenter = new BattlePresenter(unityBootstrap.StateManager, playerIndex,
-                cardPileDialogModalAddress);
+                cardPileDialogModalAddress, cardDetailModalAddress);
             // TODO: Replace the scene reference with the final game-flow dependency injection path.
             // TODO: Select the locally controlled player instead of using a serialized player index.
         }

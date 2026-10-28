@@ -21,6 +21,7 @@ namespace ui
 
         public event Action<PlayCardIntent> PlayCardRequested;
         public event Action<ViewCardPileIntent> ViewPileRequested;
+        public event Action<ViewCardDetailIntent> CardDetailRequested;
         public event Action Closed;
 
         private void Awake()
@@ -33,6 +34,7 @@ namespace ui
             MyAssert.Assert(discardPileButton != null, "BattleHUD requires discardPileButton.");
 
             handView.PlayRequested += HandlePlayRequested;
+            handView.DetailRequested += HandleCardDetailRequested;
             drawPileButton.onClick.AddListener(HandleDrawPileClicked);
             discardPileButton.onClick.AddListener(HandleDiscardPileClicked);
         }
@@ -63,6 +65,11 @@ namespace ui
             PlayCardRequested?.Invoke(intent);
         }
 
+        private void HandleCardDetailRequested(ViewCardDetailIntent intent)
+        {
+            CardDetailRequested?.Invoke(intent);
+        }
+
         private void HandleDrawPileClicked()
         {
             ViewPileRequested?.Invoke(new ViewCardPileIntent(EnumCardPileKind.Draw));
@@ -78,6 +85,7 @@ namespace ui
             if (handView != null)
             {
                 handView.PlayRequested -= HandlePlayRequested;
+                handView.DetailRequested -= HandleCardDetailRequested;
             }
             if (drawPileButton != null)
             {

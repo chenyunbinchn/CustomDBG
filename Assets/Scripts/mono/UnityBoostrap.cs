@@ -4,6 +4,7 @@ using enums;
 using gameStates;
 using gameStates.transient;
 using hook;
+using recording;
 using systems;
 using tools.assert;
 using ui.controllers;
@@ -26,6 +27,14 @@ namespace mono
             string cardsJson = File.ReadAllText(Path.Combine(Application.streamingAssetsPath, cardsJsonFileName));
             // Todo: Base on room's player number set playerNum
             StateManager.Init(cardsJson, this, 4);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            BehaviorRecorderOverlay recorderOverlay = GetComponent<BehaviorRecorderOverlay>();
+            if (recorderOverlay == null)
+            {
+                recorderOverlay = gameObject.AddComponent<BehaviorRecorderOverlay>();
+            }
+            recorderOverlay.Initialize(StateManager);
+#endif
             _battleUIController = GetComponent<BattleUIController>();
             MyAssert.Assert(_battleUIController != null,
                 "UnityBoostrap requires BattleUIController for the current battle UI test flow.");
@@ -48,6 +57,7 @@ namespace mono
             {
                 BattleApi.EnterBattle(StateManager.BattleState, StateManager.GamePlayerState, StateManager.BattlePlayerStates,
                     StateManager.GameState.RandomManager);
+                StateManager.GameState.BehaviorRecorder.BattleStarted(StateManager.BattleState.TurnNum);
                 _battleUIController?.OpenBattleUi();
             }
 
@@ -96,6 +106,11 @@ namespace mono
                 }
             }
 
+        }
+
+        private void OnDestroy()
+        {
+            StateManager?.GameState?.Dispose();
         }
     }
 }

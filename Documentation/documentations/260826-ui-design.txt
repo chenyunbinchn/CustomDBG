@@ -6,6 +6,7 @@
   2026-08-26 初版：说明完整 UI 设计。
   2026-09-01 精简：改为四个基础文件、最小要求和投入使用范例。
   2026-09-01 接入：增加最小战斗手牌、出牌和牌堆查看链路。
+  2026-09-03 显示：增加中文字体导入要求、牌堆网格、悬停和详情 Modal 链路。
 
 相关规则：
   Documentation/rules/260825-rule-ui-framework.txt
@@ -277,5 +278,35 @@ HandView 自行定位，也可以作为 GridLayoutGroup 的直接布局元素。
   - 普通牌堆使用可滚动网格；只有实际数据证明超大牌堆存在时才增加虚拟化。
   - 目标选择、抽牌/弃牌/手牌上限动画已标记 TODO。
   - DrawCardAction 仍是战斗业务层的既有限制，不由 UI 层补写业务规则。
+
+------------------------------------------------------------------------
+12. 卡牌显示与详情 Modal
+------------------------------------------------------------------------
+
+CardView 的职责：
+
+  - 渲染 CardViewModel。
+  - 鼠标进入时放大 visualRoot，离开时恢复。
+  - 区分点击与拖拽，并只上报 CardInstanceId。
+  - 不读取牌库、不执行出牌、不自行打开 Modal。
+
+CardView 的点击依次通过 HandView 或 CardPileListView、BattleHUD 或
+CardPileDialogModal 转发给 BattlePresenter。BattlePresenter 创建 CardViewModel，再调用
+UIManager.PushModal("UI/CardDetailModal", model)。因此详情查看仍保持 UI 读写分离。
+
+CardPileListView 使用 ScrollRect.content 作为唯一 Content，并在运行时保证 Content 包含：
+
+  GridLayoutGroup：4 列，单元格 400 x 600。
+  ContentSizeFitter：Vertical Fit = Preferred Size。
+
+项目必须导入有授权且覆盖中文字符的字体，并生成动态 CJK TMP Font Asset。CardView 与
+CardDetailModal 的 TMP_Text 组件应直接引用该字体资产；不允许通过运行时代码读取系统字体。
+
+CardDetailModal Prefab 最小绑定：
+
+  1. 根对象：RectTransform、CanvasGroup、CardDetailModal。
+  2. 绑定 artworkImage、nameText、costText、descriptionText、closeButton。
+  3. 加入 Addressables，地址设为 UI/CardDetailModal。
+  4. 不需要在 Inspector 中绑定任何战斗状态或 Presenter。
 
 ========================================================================
